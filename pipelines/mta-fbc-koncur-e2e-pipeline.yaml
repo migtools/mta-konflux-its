@@ -165,13 +165,14 @@ spec:
               cd /tmp
               git clone --depth 1 --branch "$(params.koncurBranch)" https://github.com/konveyor/koncur.git
               cd koncur
+              KONCUR_REVISION="$(git rev-parse HEAD)"
 
               echo "Building koncur..."
               go build -o /usr/local/bin/koncur ./cmd/koncur/main.go
 
               echo "Writing maven settings (test artifacts served from koncur repo)..."
               mkdir -p .koncur/config
-              cat > .koncur/config/settings.xml <<'EOF'
+              cat > .koncur/config/settings.xml <<EOF
               <settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
                         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
                         xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 https://maven.apache.org/xsd/settings-1.0.0.xsd">
@@ -182,7 +183,7 @@ spec:
                       <repository>
                         <id>konveyor-demo</id>
                         <name>Konveyor demo test artifacts</name>
-                        <url>https://raw.githubusercontent.com/konveyor/koncur/main/local-maven-resources</url>
+                        <url>https://raw.githubusercontent.com/konveyor/koncur/${KONCUR_REVISION}/local-maven-resources</url>
                         <releases><enabled>true</enabled></releases>
                         <snapshots><enabled>true</enabled></snapshots>
                       </repository>

@@ -142,11 +142,12 @@ spec:
 
               echo "Tackle Hub URL: $HUB_URL"
 
-              echo "Cloning koncur repository..."
+              echo "Cloning koncur repository (branch: $(params.koncurBranch))..."
               cd /tmp
               git clone --depth 1 --branch "$(params.koncurBranch)" https://github.com/konveyor/koncur.git
               cd koncur
               KONCUR_REVISION="$(git rev-parse HEAD)"
+              echo "Using koncur revision: ${KONCUR_REVISION}"
 
               echo "Building koncur..."
               go build -o /usr/local/bin/koncur ./cmd/koncur/main.go

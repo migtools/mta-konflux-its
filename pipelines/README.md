@@ -12,8 +12,8 @@ cluster and runs koncur tackle-hub E2E tests.
 ### Flow
 
 ```
-parse-metadata → verify-image-pullable → lease-cluster → cleanup-existing-mta
-  → deploy-operator → run-koncur-hub-tests
+parse-metadata → lease-cluster → cleanup-existing-mta → deploy-operator
+  → run-koncur-hub-tests
 finally: release-cluster
 ```
 

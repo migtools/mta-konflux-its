@@ -21,9 +21,6 @@ spec:
       default: "main"
 
   results:
-    - name: IMAGE_VERIFICATION
-      description: Pre-flight image pullability check status
-      value: $(tasks.verify-image-pullable.results.verificationStatus)
     - name: LEASE_STATUS
       description: Pool cluster lease status
       value: $(tasks.lease-cluster.results.leaseStatus)
@@ -52,25 +49,9 @@ spec:
           - name: pathInRepo
             value: tasks/test_metadata.yaml
 
-    - name: verify-image-pullable
-      runAfter:
-        - parse-metadata
-      params:
-        - name: fbcImage
-          value: $(tasks.parse-metadata.results.component-container-image)
-      taskRef:
-        resolver: git
-        params:
-          - name: url
-            value: https://github.com/migtools/mta-tackle2-ui
-          - name: revision
-            value: main
-          - name: pathInRepo
-            value: .tekton/tasks/verify-image-pullable.yaml
-
     - name: lease-cluster
       runAfter:
-        - verify-image-pullable
+        - parse-metadata
       params:
         - name: poolName
           value: $(params.poolName)

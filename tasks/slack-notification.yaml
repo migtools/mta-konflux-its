@@ -1,0 +1,139 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: slack-notification
+  labels:
+    app.kubernetes.io/version: "0.1"
+  annotations:
+    tekton.dev/pipelines.minVersion: "0.12.1"
+    tekton.dev/categories: Notification
+    tekton.dev/tags: slack,notification
+    tekton.dev/displayName: "Send Slack Notification"
+spec:
+  description: >-
+    Send test results notification to Slack channel.
+    Reports pipeline execution status, test results, and links to pipeline run.
+
+  params:
+    - name: testStatus
+      type: string
+      description: UI E2E test execution status (Succeeded/Failed)
+    - name: dastStatus
+      type: string
+      default: "None"
+      description: DAST scan execution status (Succeeded/Failed/None)
+    - name: operatorNVR
+      type: string
+      default: "unknown"
+      description: Operator NVR (Name-Version-Release)
+    - name: snapshotJson
+      type: string
+      description: Konflux snapshot JSON
+    - name: pipelineRunName
+      type: string
+      description: Name of the pipeline run
+    - name: slackWebhookSecretName
+      type: string
+      default: "slack-webhook"
+      description: Name of the Kubernetes Secret containing Slack webhook URL
+    - name: slackWebhookSecretKey
+      type: string
+      default: "url"
+      description: Key in the secret containing the webhook URL
+
+  steps:
+    - name: send-notification
+      image: registry.redhat.io/openshift4/ose-cli:latest
+      env:
+        - name: SLACK_WEBHOOK_URL
+          valueFrom:
+            secretKeyRef:
+              name: $(params.slackWebhookSecretName)
+              key: $(params.slackWebhookSecretKey)
+      script: |
+        #!/bin/bash
+        set -euo pipefail
+
+        UI_TEST_STATUS="$(params.testStatus)"
+        DAST_STATUS="$(params.dastStatus)"
+        OPERATOR_NVR="$(params.operatorNVR)"
+        SNAPSHOT_JSON='$(params.snapshotJson)'
+        PIPELINE_RUN="$(params.pipelineRunName)"
+
+        # Extract snapshot name from pipelineRun label
+        SNAPSHOT_NAME=$(oc get pipelinerun "$PIPELINE_RUN" -o jsonpath='{.metadata.labels.appstudio\.openshift\.io/snapshot}' 2>/dev/null || true)
+
+        # Fallback: use application name
+        if [ -z "$SNAPSHOT_NAME" ]; then
+          SNAPSHOT_NAME=$(echo "$SNAPSHOT_JSON" | grep -o '"application":"[^"]*"' | cut -d'"' -f4)
+        fi
+
+        # Last resort
+        if [ -z "$SNAPSHOT_NAME" ]; then
+          SNAPSHOT_NAME="unknown"
+        fi
+
+        echo "Sending Slack notification"
+        echo "Snapshot: $SNAPSHOT_NAME"
+        echo "Operator NVR: $OPERATOR_NVR"
+        echo "UI Tests: $UI_TEST_STATUS"
+        echo "DAST Scan: $DAST_STATUS"
+
+        # Determine UI test status text
+        if [ "$UI_TEST_STATUS" = "Succeeded" ]; then
+          UI_STATUS_TEXT="PASSED"
+        elif [ "$UI_TEST_STATUS" = "Failed" ]; then
+          UI_STATUS_TEXT="FAILED"
+        else
+          UI_STATUS_TEXT="SKIPPED"
+        fi
+
+        # Determine DAST status text
+        if [ "$DAST_STATUS" = "Succeeded" ]; then
+          DAST_STATUS_TEXT="PASSED"
+        elif [ "$DAST_STATUS" = "Failed" ]; then
+          DAST_STATUS_TEXT="FAILED"
+        else
+          DAST_STATUS_TEXT="NOT RUN"
+        fi
+
+        # Construct Konflux UI link
+        PIPELINE_LINK="https://konflux-ui.apps.kflux-ocp-p01.7ayg.p1.openshiftapps.com/ns/art-mta-tenant/applications/fbc-mta-8-2/pipelineruns/$PIPELINE_RUN"
+
+        # Construct message for Slack Workflow
+        MESSAGE=$(cat <<EOF
+        {
+          "snapshot": "$SNAPSHOT_NAME",
+          "nvr": "$OPERATOR_NVR",
+          "ui_tests": "$UI_STATUS_TEXT",
+          "dast_scan": "$DAST_STATUS_TEXT",
+          "pipeline": "$PIPELINE_LINK"
+        }
+        EOF
+        )
+
+        # Install curl if not already present
+        if ! command -v curl &> /dev/null; then
+          echo "Installing curl..."
+          if ! microdnf install -y curl; then
+            echo "❌ Failed to install curl"
+            exit 1
+          fi
+        else
+          echo "✓ curl already installed"
+        fi
+
+        # Send to Slack
+        echo "Sending notification to Slack..."
+        HTTP_CODE=$(curl -X POST -H 'Content-type: application/json' \
+          --data "$MESSAGE" \
+          -w "%{http_code}" \
+          -o /tmp/slack-response.txt \
+          "$SLACK_WEBHOOK_URL")
+
+        if [ "$HTTP_CODE" = "200" ]; then
+          echo "✅ Slack notification sent successfully"
+        else
+          echo "⚠️ Failed to send Slack notification (HTTP $HTTP_CODE)"
+          cat /tmp/slack-response.txt
+        fi

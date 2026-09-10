@@ -1,0 +1,218 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: mta-fbc-e2e-pipeline
+spec:
+  description: |
+    Deploy MTA operator from FBC catalog to a leased pool cluster and run E2E tests.
+    Uses OCPCTL cluster pools for instant access to pre-provisioned clusters.
+    Faster than ephemeral clusters (no 15-30 min provision wait).
+
+  params:
+    - name: SNAPSHOT
+      description: Application Snapshot JSON
+      type: string
+    - name: poolName
+      description: Name of the cluster pool to lease from
+      type: string
+      default: "ci-sno-pool-1"
+
+  results:
+    - name: IMAGE_VERIFICATION
+      description: Pre-flight image pullability check status
+      value: $(tasks.verify-image-pullable.results.verificationStatus)
+    - name: LEASE_STATUS
+      description: Pool cluster lease status
+      value: $(tasks.lease-cluster.results.leaseStatus)
+    - name: CLUSTER_NAME
+      description: Name of the leased cluster
+      value: $(tasks.lease-cluster.results.clusterName)
+    - name: DEPLOYMENT_STATUS
+      description: Operator deployment status
+      value: $(tasks.deploy-operator.results.deploymentStatus)
+    - name: TEST_OUTPUT
+      description: Test execution result
+      value: $(tasks.run-e2e-tests.results.testStatus)
+    - name: DAST_SCAN
+      description: DAST security scan result
+      value: $(tasks.run-dast-scan.results.scanStatus)
+
+  tasks:
+    - name: parse-metadata
+      params:
+        - name: SNAPSHOT
+          value: $(params.SNAPSHOT)
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/konflux-ci/integration-examples
+          - name: revision
+            value: a1a70b0a1cfc96f5216d472fbd60f6b42780b3e5
+          - name: pathInRepo
+            value: tasks/test_metadata.yaml
+
+    - name: extract-operator-nvr
+      runAfter:
+        - parse-metadata
+      params:
+        - name: snapshotJson
+          value: $(params.SNAPSHOT)
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/extract-operator-nvr.yaml
+
+    - name: verify-image-pullable
+      runAfter:
+        - extract-operator-nvr
+      params:
+        - name: fbcImage
+          value: $(tasks.parse-metadata.results.component-container-image)
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/verify-image-pullable.yaml
+
+    - name: lease-cluster
+      runAfter:
+        - verify-image-pullable
+      params:
+        - name: poolName
+          value: $(params.poolName)
+        - name: leaseDuration
+          value: "4"
+        - name: purpose
+          value: "MTA FBC E2E Testing"
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/ocpctl-pool-lease.yaml
+
+    - name: cleanup-existing-mta
+      runAfter:
+        - lease-cluster
+      params:
+        - name: clusterId
+          value: $(tasks.lease-cluster.results.clusterId)
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/cleanup-mta.yaml
+
+    - name: deploy-operator
+      runAfter:
+        - cleanup-existing-mta
+      params:
+        - name: clusterId
+          value: $(tasks.lease-cluster.results.clusterId)
+        - name: fbcImage
+          value: $(tasks.parse-metadata.results.component-container-image)
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/deploy-mta-operator.yaml
+
+    - name: run-dast-scan
+      runAfter:
+        - deploy-operator
+      params:
+        - name: clusterId
+          value: $(tasks.lease-cluster.results.clusterId)
+        - name: mtaRoute
+          value: $(tasks.deploy-operator.results.uiRoute)
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/run-dast-scan.yaml
+
+    - name: run-e2e-tests
+      runAfter:
+        - run-dast-scan
+      params:
+        - name: uiRoute
+          value: $(tasks.deploy-operator.results.uiRoute)
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/run-ui-e2e-tests.yaml
+
+  finally:
+    - name: release-cluster
+      when:
+        - input: "$(tasks.lease-cluster.status)"
+          operator: in
+          values: ["Succeeded"]
+      params:
+        - name: clusterId
+          value: $(tasks.lease-cluster.results.clusterId)
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/ocpctl-pool-release.yaml
+
+    - name: slack-notification
+      when:
+        - input: "$(tasks.run-e2e-tests.status)"
+          operator: in
+          values: ["Succeeded", "Failed"]
+      params:
+        - name: testStatus
+          value: "$(tasks.run-e2e-tests.status)"
+        - name: dastStatus
+          value: "$(tasks.run-dast-scan.status)"
+        - name: operatorNVR
+          value: "$(tasks.extract-operator-nvr.results.operatorNVR)"
+        - name: snapshotJson
+          value: "$(params.SNAPSHOT)"
+        - name: pipelineRunName
+          value: "$(context.pipelineRun.name)"
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/slack-notification.yaml

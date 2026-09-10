@@ -63,11 +63,11 @@ spec:
         resolver: git
         params:
           - name: url
-            value: https://github.com/migtools/mta-tackle2-ui
+            value: https://github.com/migtools/mta-konflux-its
           - name: revision
             value: main
           - name: pathInRepo
-            value: .tekton/tasks/ocpctl-pool-lease.yaml
+            value: tasks/ocpctl-pool-lease.yaml
 
     - name: cleanup-existing-mta
       runAfter:
@@ -79,11 +79,11 @@ spec:
         resolver: git
         params:
           - name: url
-            value: https://github.com/migtools/mta-tackle2-ui
+            value: https://github.com/migtools/mta-konflux-its
           - name: revision
             value: main
           - name: pathInRepo
-            value: .tekton/tasks/cleanup-mta.yaml
+            value: tasks/cleanup-mta.yaml
 
     - name: deploy-operator
       runAfter:
@@ -97,11 +97,11 @@ spec:
         resolver: git
         params:
           - name: url
-            value: https://github.com/migtools/mta-tackle2-ui
+            value: https://github.com/migtools/mta-konflux-its
           - name: revision
             value: main
           - name: pathInRepo
-            value: .tekton/tasks/deploy-mta-operator.yaml
+            value: tasks/deploy-mta-operator.yaml
 
     - name: run-koncur-hub-tests
       runAfter:
@@ -220,8 +220,8 @@ spec:
         resolver: git
         params:
           - name: url
-            value: https://github.com/migtools/mta-tackle2-ui
+            value: https://github.com/migtools/mta-konflux-its
           - name: revision
             value: main
           - name: pathInRepo
-            value: .tekton/tasks/ocpctl-pool-release.yaml
+            value: tasks/ocpctl-pool-release.yaml

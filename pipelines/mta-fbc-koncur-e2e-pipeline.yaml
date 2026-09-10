@@ -14,7 +14,7 @@ spec:
     - name: poolName
       description: Name of the cluster pool to lease from
       type: string
-      default: "ci-sno-pool-1"
+      default: "ci-koncur-pool"
     - name: koncurBranch
       description: Branch of the konveyor/koncur repository to build and test from
       type: string

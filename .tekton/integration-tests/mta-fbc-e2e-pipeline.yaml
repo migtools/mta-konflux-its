@@ -228,13 +228,6 @@ spec:
             value: .tekton/tasks/ocpctl-pool-release.yaml
 
     - name: slack-notification
-      when:
-        - input: "run"
-          operator: in
-          values: ["run"] # Set to "skip" to disable Slack notifications during testing
-        - input: "$(tasks.run-dast-scan.status)"
-          operator: in
-          values: ["Succeeded", "Failed", "Skipped"] # TEMPORARY: Added Skipped to test notification format
       params:
         - name: testStatus
           value: "$(tasks.run-e2e-tests.status)"

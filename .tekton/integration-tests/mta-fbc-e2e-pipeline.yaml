@@ -192,6 +192,8 @@ spec:
       params:
         - name: uiRoute
           value: $(tasks.deploy-operator.results.uiRoute)
+        - name: gitBranch
+          value: "release-0.10"
       taskRef:
         resolver: git
         params:

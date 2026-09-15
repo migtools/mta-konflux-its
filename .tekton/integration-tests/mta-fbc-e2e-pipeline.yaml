@@ -16,6 +16,10 @@ spec:
       description: Name of the cluster pool to lease from
       type: string
       default: "ci-sno-pool-1"
+    - name: uiTestBranch
+      description: Branch of mta-tackle2-ui to use for UI E2E tests
+      type: string
+      default: "main"
 
   results:
     - name: IMAGE_VERIFICATION
@@ -192,6 +196,8 @@ spec:
       params:
         - name: uiRoute
           value: $(tasks.deploy-operator.results.uiRoute)
+        - name: gitBranch
+          value: $(params.uiTestBranch)
       taskRef:
         resolver: git
         params:
@@ -240,6 +246,8 @@ spec:
           value: "$(params.SNAPSHOT)"
         - name: pipelineRunName
           value: "$(context.pipelineRun.name)"
+        - name: testBranch
+          value: "$(params.uiTestBranch)"
       taskRef:
         resolver: git
         params:

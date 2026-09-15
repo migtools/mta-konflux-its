@@ -105,21 +105,6 @@ spec:
         echo "UI Tests: $UI_TEST_STATUS"
         echo "DAST Scan: $DAST_STATUS"
 
-        # Determine overall status and color
-        if [ "$UI_TEST_STATUS" = "Succeeded" ] && [ "$DAST_STATUS" = "Succeeded" ]; then
-          STATUS_EMOJI=":white_check_mark:"
-          STATUS_TEXT="success"
-          STATUS_COLOR="good"
-        elif [ "$UI_TEST_STATUS" = "Failed" ] || [ "$DAST_STATUS" = "Failed" ]; then
-          STATUS_EMOJI=":x:"
-          STATUS_TEXT="failure"
-          STATUS_COLOR="danger"
-        else
-          STATUS_EMOJI=":heavy_minus_sign:"
-          STATUS_TEXT="skipped"
-          STATUS_COLOR="warning"
-        fi
-
         # UI test status emoji
         if [ "$UI_TEST_STATUS" = "Succeeded" ]; then
           UI_STATUS_TEXT=":white_check_mark:"
@@ -141,21 +126,16 @@ spec:
         # Construct Konflux UI link
         PIPELINE_LINK="https://konflux-ui.apps.kflux-ocp-p01.7ayg.p1.openshiftapps.com/ns/art-mta-tenant/applications/$APPLICATION_NAME/pipelineruns/$PIPELINE_RUN"
 
-        # Get current timestamp
-        TIMESTAMP=$(date +%s)
-
-        # Construct message in Slack attachments format
+        # Construct message for Slack Workflow (simple JSON format)
         MESSAGE=$(cat <<EOF
         {
-          "attachments": [
-            {
-              "color": "$STATUS_COLOR",
-              "text": "$STATUS_EMOJI *MTA FBC E2E Tests (@$TEST_BRANCH)* - $STATUS_TEXT | NVR: \`$OPERATOR_NVR\` | OCP: \`$OCP_VERSION\` | UI: $UI_STATUS_TEXT DAST: $DAST_STATUS_TEXT | <$PIPELINE_LINK|View Run>",
-              "footer": "mta-konflux-its",
-              "footer_icon": "https://github.com/konveyor.png",
-              "ts": $TIMESTAMP
-            }
-          ]
+          "snapshot": "$SNAPSHOT_NAME",
+          "nvr": "$OPERATOR_NVR",
+          "ocp_version": "$OCP_VERSION",
+          "branch": "$TEST_BRANCH",
+          "ui_tests": "$UI_STATUS_TEXT",
+          "dast_scan": "$DAST_STATUS_TEXT",
+          "pipeline": "$PIPELINE_LINK"
         }
         EOF
         )

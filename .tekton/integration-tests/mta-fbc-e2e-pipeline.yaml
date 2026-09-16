@@ -168,7 +168,7 @@ spec:
       runAfter:
         - deploy-operator
       when:
-        - input: "skip"
+        - input: "run"
           operator: in
           values: ["run"] # Set to "skip" to skip DAST scan
       params:
@@ -190,7 +190,7 @@ spec:
       runAfter:
         - run-dast-scan
       when:
-        - input: "skip"
+        - input: "run"
           operator: in
           values: ["run"] # Set to "skip" to skip UI tests
       params:
@@ -228,6 +228,13 @@ spec:
             value: .tekton/tasks/ocpctl-pool-release.yaml
 
     - name: slack-notification
+      when:
+        - input: "run"
+          operator: in
+          values: ["run"] # Set to "skip" to disable Slack notifications during testing
+        - input: "$(tasks.run-dast-scan.status)"
+          operator: in
+          values: ["Succeeded", "Failed"] # Only send if DAST scan actually ran (means tests executed)
       params:
         - name: testStatus
           value: "$(tasks.run-e2e-tests.status)"
@@ -247,6 +254,6 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: add-ocp-version-to-slack
+            value: main
           - name: pathInRepo
             value: .tekton/tasks/slack-notification.yaml

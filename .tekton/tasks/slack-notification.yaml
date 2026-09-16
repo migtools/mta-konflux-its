@@ -32,6 +32,10 @@ spec:
     - name: pipelineRunName
       type: string
       description: Name of the pipeline run
+    - name: testBranch
+      type: string
+      default: "main"
+      description: Branch used for UI E2E tests (e.g., main, release-0.10)
     - name: slackWebhookSecretName
       type: string
       default: "slack-webhook"
@@ -59,6 +63,7 @@ spec:
         OPERATOR_NVR="$(params.operatorNVR)"
         SNAPSHOT_JSON='$(params.snapshotJson)'
         PIPELINE_RUN="$(params.pipelineRunName)"
+        TEST_BRANCH="$(params.testBranch)"
 
         # Extract snapshot name from pipelineRun label
         SNAPSHOT_NAME=$(oc get pipelinerun "$PIPELINE_RUN" -o jsonpath='{.metadata.labels.appstudio\.openshift\.io/snapshot}' 2>/dev/null || true)
@@ -79,38 +84,55 @@ spec:
           APPLICATION_NAME="unknown"  # Fallback if extraction fails
         fi
 
+        # Extract OCP version from snapshot target_branch annotation
+        OCP_VERSION="N/A"
+        if [ "$SNAPSHOT_NAME" != "unknown" ]; then
+          TARGET_BRANCH=$(oc get snapshot "$SNAPSHOT_NAME" \
+            -o jsonpath='{.metadata.annotations.build\.appstudio\.redhat\.com/target_branch}' 2>/dev/null || echo "")
+
+          if [ -n "$TARGET_BRANCH" ]; then
+            # Extract OCP version (e.g., art-mta-8.2-ocp-4.20-... → 4.20)
+            if echo "$TARGET_BRANCH" | grep -qE 'ocp-[0-9]+\.[0-9]+'; then
+              OCP_VERSION=$(echo "$TARGET_BRANCH" | grep -oE 'ocp-[0-9]+\.[0-9]+' | sed 's/ocp-//')
+            fi
+          fi
+        fi
+
         echo "Sending Slack notification"
         echo "Snapshot: $SNAPSHOT_NAME"
         echo "Operator NVR: $OPERATOR_NVR"
+        echo "OCP Version: $OCP_VERSION"
         echo "UI Tests: $UI_TEST_STATUS"
         echo "DAST Scan: $DAST_STATUS"
 
-        # Determine UI test status text
+        # UI test status - emoji for pass/fail, text for skipped
         if [ "$UI_TEST_STATUS" = "Succeeded" ]; then
-          UI_STATUS_TEXT="PASSED"
+          UI_STATUS_TEXT=":white_check_mark:"
         elif [ "$UI_TEST_STATUS" = "Failed" ]; then
-          UI_STATUS_TEXT="FAILED"
+          UI_STATUS_TEXT=":x:"
         else
           UI_STATUS_TEXT="SKIPPED"
         fi
 
-        # Determine DAST status text
+        # DAST status - emoji for pass/fail, text for skipped
         if [ "$DAST_STATUS" = "Succeeded" ]; then
-          DAST_STATUS_TEXT="PASSED"
+          DAST_STATUS_TEXT=":white_check_mark:"
         elif [ "$DAST_STATUS" = "Failed" ]; then
-          DAST_STATUS_TEXT="FAILED"
+          DAST_STATUS_TEXT=":x:"
         else
-          DAST_STATUS_TEXT="NOT RUN"
+          DAST_STATUS_TEXT="SKIPPED"
         fi
 
-        # Construct Konflux UI link with dynamic application name
+        # Construct Konflux UI link
         PIPELINE_LINK="https://konflux-ui.apps.kflux-ocp-p01.7ayg.p1.openshiftapps.com/ns/art-mta-tenant/applications/$APPLICATION_NAME/pipelineruns/$PIPELINE_RUN"
 
-        # Construct message for Slack Workflow
+        # Construct message for Slack Workflow (simple JSON format)
         MESSAGE=$(cat <<EOF
         {
           "snapshot": "$SNAPSHOT_NAME",
           "nvr": "$OPERATOR_NVR",
+          "ocp_version": "$OCP_VERSION",
+          "branch": "$TEST_BRANCH",
           "ui_tests": "$UI_STATUS_TEXT",
           "dast_scan": "$DAST_STATUS_TEXT",
           "pipeline": "$PIPELINE_LINK"

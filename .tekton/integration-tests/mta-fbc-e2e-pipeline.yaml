@@ -247,6 +247,6 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: add-ocp-version-to-slack
           - name: pathInRepo
             value: .tekton/tasks/slack-notification.yaml

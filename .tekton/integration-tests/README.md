@@ -28,10 +28,34 @@ pass or fail. Slack notifications are sent only when DAST scan runs (meaning the
 
 ### Parameters
 
-| Name       | Default         | Description                                     |
-| ---------- | --------------- | ----------------------------------------------- |
-| `SNAPSHOT` | _(required)_    | Application Snapshot JSON (provided by Konflux) |
-| `poolName` | `ci-sno-pool-1` | OCPCTL cluster pool to lease from               |
+| Name           | Default         | Description                                              |
+| -------------- | --------------- | -------------------------------------------------------- |
+| `SNAPSHOT`     | _(required)_    | Application Snapshot JSON (provided by Konflux)          |
+| `poolName`     | `ci-sno-pool-1` | OCPCTL cluster pool to lease from                        |
+| `uiTestBranch` | `main`          | Branch of mta-tackle2-ui to use for UI E2E tests         |
+
+### Multi-Version Testing
+
+This pipeline supports testing different MTA versions by passing the `uiTestBranch` parameter:
+
+- **MTA 8.3+**: Use default (tests run from `main` branch)
+- **MTA 8.2**: Pass `uiTestBranch: "release-0.10"` in ITS configuration
+
+Example ITS configuration for MTA 8.2:
+```yaml
+spec:
+  params:
+    - name: uiTestBranch
+      value: "release-0.10"
+  resolverRef:
+    params:
+      - name: url
+        value: https://github.com/migtools/mta-konflux-its
+      - name: revision
+        value: main  # Always use main branch
+      - name: pathInRepo
+        value: .tekton/integration-tests/mta-fbc-e2e-pipeline.yaml
+```
 
 ## `mta-fbc-koncur-e2e-pipeline.yaml`
 

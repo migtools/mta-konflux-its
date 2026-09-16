@@ -6,8 +6,9 @@ A catalog of [Tekton](https://tekton.dev/) pipelines and tasks used as
 ## Repository structure
 
 ```
-pipelines/    # integration-test pipelines referenced by IntegrationTestScenarios
-tasks/        # reusable Tekton tasks referenced by the pipelines
+.tekton/
+  integration-tests/   # Integration test pipelines referenced by IntegrationTestScenarios
+  tasks/              # Reusable Tekton tasks referenced by the pipelines
 README.md
 ```
 
@@ -29,9 +30,33 @@ spec:
       - name: revision
         value: main   # branch name, tag, or commit SHA
       - name: pathInRepo
-        value: pipelines/<pipeline-file>.yaml
+        value: .tekton/integration-tests/<pipeline-file>.yaml
 ```
 
 Because files are addressed by exact `pathInRepo`, the folder layout above is a convention for
-readability, not a resolver requirement. Pipelines in `pipelines/` resolve their tasks from
-`tasks/` in this same repository.
+readability, not a resolver requirement. Pipelines in `.tekton/integration-tests/` resolve their 
+tasks from `.tekton/tasks/` in this same repository.
+
+## Multi-Version Testing
+
+Pipelines support testing different MTA versions via parameters rather than separate branches:
+
+- **koncur tests**: Use `koncurBranch` parameter (default: `main`, override for older versions)
+- **UI E2E tests**: Use `uiTestBranch` parameter (default: `main`, override for older versions)
+
+Example ITS for MTA 8.2 (tests from release-0.10 branch):
+```yaml
+apiVersion: appstudio.redhat.com/v1beta2
+kind: IntegrationTestScenario
+spec:
+  params:
+    - name: uiTestBranch
+      value: "release-0.10"
+  resolverRef:
+    resolver: git
+    params:
+      - name: revision
+        value: main  # Always use main - version controlled via parameters
+      - name: pathInRepo
+        value: .tekton/integration-tests/mta-fbc-e2e-pipeline.yaml
+```

@@ -85,7 +85,7 @@ spec:
         fi
 
         # Extract OCP version from snapshot target_branch annotation
-        OCP_VERSION="unknown"
+        OCP_VERSION="N/A"
         if [ "$SNAPSHOT_NAME" != "unknown" ]; then
           TARGET_BRANCH=$(oc get snapshot "$SNAPSHOT_NAME" \
             -o jsonpath='{.metadata.annotations.build\.appstudio\.redhat\.com/target_branch}' 2>/dev/null || echo "")
@@ -105,22 +105,22 @@ spec:
         echo "UI Tests: $UI_TEST_STATUS"
         echo "DAST Scan: $DAST_STATUS"
 
-        # UI test status emoji
+        # UI test status - emoji for pass/fail, text for skipped
         if [ "$UI_TEST_STATUS" = "Succeeded" ]; then
           UI_STATUS_TEXT=":white_check_mark:"
         elif [ "$UI_TEST_STATUS" = "Failed" ]; then
           UI_STATUS_TEXT=":x:"
         else
-          UI_STATUS_TEXT=":heavy_minus_sign:"
+          UI_STATUS_TEXT="SKIPPED"
         fi
 
-        # DAST status emoji
+        # DAST status - emoji for pass/fail, text for skipped
         if [ "$DAST_STATUS" = "Succeeded" ]; then
           DAST_STATUS_TEXT=":white_check_mark:"
         elif [ "$DAST_STATUS" = "Failed" ]; then
           DAST_STATUS_TEXT=":x:"
         else
-          DAST_STATUS_TEXT=":heavy_minus_sign:"
+          DAST_STATUS_TEXT="SKIPPED"
         fi
 
         # Construct Konflux UI link

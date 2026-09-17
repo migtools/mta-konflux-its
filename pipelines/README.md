@@ -1,7 +1,7 @@
 # Pipelines
 
 Tekton `Pipeline` definitions consumed as Konflux `IntegrationTestScenario` (ITS) pipelines via
-the git resolver. Reference one with `pathInRepo: .tekton/integration-tests/<file>.yaml` (see the repo
+the git resolver. Reference one with `pathInRepo: pipelines/<file>.yaml` (see the repo
 [README](../README.md)).
 
 ## `mta-fbc-e2e-pipeline.yaml`
@@ -54,7 +54,7 @@ spec:
       - name: revision
         value: main  # Always use main branch
       - name: pathInRepo
-        value: .tekton/integration-tests/mta-fbc-e2e-pipeline.yaml
+        value: pipelines/mta-fbc-e2e-pipeline.yaml
 ```
 
 ## `mta-fbc-koncur-e2e-pipeline.yaml`

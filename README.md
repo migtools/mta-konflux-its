@@ -6,9 +6,8 @@ A catalog of [Tekton](https://tekton.dev/) pipelines and tasks used as
 ## Repository structure
 
 ```
-.tekton/
-  integration-tests/   # Integration test pipelines referenced by IntegrationTestScenarios
-  tasks/              # Reusable Tekton tasks referenced by the pipelines
+pipelines/    # integration-test pipelines referenced by IntegrationTestScenarios
+tasks/        # reusable Tekton tasks referenced by the pipelines
 README.md
 ```
 
@@ -30,12 +29,12 @@ spec:
       - name: revision
         value: main   # branch name, tag, or commit SHA
       - name: pathInRepo
-        value: .tekton/integration-tests/<pipeline-file>.yaml
+        value: pipelines/<pipeline-file>.yaml
 ```
 
 Because files are addressed by exact `pathInRepo`, the folder layout above is a convention for
-readability, not a resolver requirement. Pipelines in `.tekton/integration-tests/` resolve their 
-tasks from `.tekton/tasks/` in this same repository.
+readability, not a resolver requirement. Pipelines in `pipelines/` resolve their tasks from
+`tasks/` in this same repository.
 
 ## Multi-Version Testing
 
@@ -58,5 +57,5 @@ spec:
       - name: revision
         value: main  # Always use main - version controlled via parameters
       - name: pathInRepo
-        value: .tekton/integration-tests/mta-fbc-e2e-pipeline.yaml
+        value: pipelines/mta-fbc-e2e-pipeline.yaml
 ```

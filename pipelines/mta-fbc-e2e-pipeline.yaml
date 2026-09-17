@@ -72,7 +72,7 @@ spec:
           - name: revision
             value: main
           - name: pathInRepo
-            value: .tekton/tasks/filter-ocp-version.yaml
+            value: tasks/filter-ocp-version.yaml
 
     - name: extract-operator-nvr
       runAfter:
@@ -90,7 +90,7 @@ spec:
           - name: revision
             value: main
           - name: pathInRepo
-            value: .tekton/tasks/extract-operator-nvr.yaml
+            value: tasks/extract-operator-nvr.yaml
 
     - name: verify-image-pullable
       runAfter:
@@ -106,7 +106,7 @@ spec:
           - name: revision
             value: main
           - name: pathInRepo
-            value: .tekton/tasks/verify-image-pullable.yaml
+            value: tasks/verify-image-pullable.yaml
 
     - name: lease-cluster
       runAfter:
@@ -126,7 +126,7 @@ spec:
           - name: revision
             value: main
           - name: pathInRepo
-            value: .tekton/tasks/ocpctl-pool-lease.yaml
+            value: tasks/ocpctl-pool-lease.yaml
 
     - name: cleanup-existing-mta
       runAfter:
@@ -142,7 +142,7 @@ spec:
           - name: revision
             value: main
           - name: pathInRepo
-            value: .tekton/tasks/cleanup-mta.yaml
+            value: tasks/cleanup-mta.yaml
 
     - name: deploy-operator
       runAfter:
@@ -162,7 +162,7 @@ spec:
           - name: revision
             value: main
           - name: pathInRepo
-            value: .tekton/tasks/deploy-mta-operator.yaml
+            value: tasks/deploy-mta-operator.yaml
 
     - name: run-dast-scan
       runAfter:
@@ -184,7 +184,7 @@ spec:
           - name: revision
             value: main
           - name: pathInRepo
-            value: .tekton/tasks/run-dast-scan.yaml
+            value: tasks/run-dast-scan.yaml
 
     - name: run-e2e-tests
       runAfter:
@@ -206,7 +206,7 @@ spec:
           - name: revision
             value: main
           - name: pathInRepo
-            value: .tekton/tasks/run-ui-e2e-tests.yaml
+            value: tasks/run-ui-e2e-tests.yaml
 
   finally:
     - name: release-cluster
@@ -225,7 +225,7 @@ spec:
           - name: revision
             value: main
           - name: pathInRepo
-            value: .tekton/tasks/ocpctl-pool-release.yaml
+            value: tasks/ocpctl-pool-release.yaml
 
     - name: slack-notification
       when:
@@ -256,4 +256,4 @@ spec:
           - name: revision
             value: main
           - name: pathInRepo
-            value: .tekton/tasks/slack-notification.yaml
+            value: tasks/slack-notification.yaml

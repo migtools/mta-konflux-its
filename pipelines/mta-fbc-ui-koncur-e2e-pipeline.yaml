@@ -78,7 +78,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: combine-koncur-ui-tests
+            value: main
           - name: pathInRepo
             value: tasks/filter-ocp-version.yaml
 
@@ -96,7 +96,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: combine-koncur-ui-tests
+            value: main
           - name: pathInRepo
             value: tasks/extract-operator-nvr.yaml
 
@@ -112,7 +112,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: combine-koncur-ui-tests
+            value: main
           - name: pathInRepo
             value: tasks/verify-image-pullable.yaml
 
@@ -132,7 +132,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: combine-koncur-ui-tests
+            value: main
           - name: pathInRepo
             value: tasks/ocpctl-pool-lease.yaml
 
@@ -148,7 +148,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: combine-koncur-ui-tests
+            value: main
           - name: pathInRepo
             value: tasks/cleanup-mta.yaml
 
@@ -168,7 +168,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: combine-koncur-ui-tests
+            value: main
           - name: pathInRepo
             value: tasks/deploy-mta-operator.yaml
 
@@ -190,7 +190,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: combine-koncur-ui-tests
+            value: main
           - name: pathInRepo
             value: tasks/run-dast-scan.yaml
 
@@ -198,7 +198,7 @@ spec:
       runAfter:
         - run-dast-scan
       when:
-        - input: "skip"
+        - input: "run"
           operator: in
           values: ["run"] # Set to "skip" to skip UI tests
       params:
@@ -212,13 +212,13 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: combine-koncur-ui-tests
+            value: main
           - name: pathInRepo
             value: tasks/run-ui-e2e-tests.yaml
 
     - name: run-koncur-hub-tests
       runAfter:
-        - deploy-operator
+        - run-e2e-tests
       when:
         - input: "run"
           operator: in
@@ -234,7 +234,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: combine-koncur-ui-tests
+            value: main
           - name: pathInRepo
             value: tasks/run-koncur-hub-tests.yaml
 
@@ -253,7 +253,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: combine-koncur-ui-tests
+            value: main
           - name: pathInRepo
             value: tasks/ocpctl-pool-release.yaml
 
@@ -288,6 +288,6 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: combine-koncur-ui-tests
+            value: main
           - name: pathInRepo
             value: tasks/slack-notification.yaml

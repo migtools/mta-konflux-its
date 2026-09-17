@@ -5,7 +5,7 @@ metadata:
 spec:
   description: |
     Deploy MTA operator from FBC catalog to a leased OCPCTL pool cluster and run koncur hub E2E tests.
-    Uses modular reusable tasks from migtools/mta-tackle2-ui .tekton/tasks/ for cluster lifecycle and operator deployment.
+    Uses modular reusable tasks from migtools/mta-tackle2-ui tasks/ for cluster lifecycle and operator deployment.
 
   params:
     - name: SNAPSHOT
@@ -67,7 +67,7 @@ spec:
           - name: revision
             value: main
           - name: pathInRepo
-            value: .tekton/tasks/ocpctl-pool-lease.yaml
+            value: tasks/ocpctl-pool-lease.yaml
 
     - name: cleanup-existing-mta
       runAfter:
@@ -83,7 +83,7 @@ spec:
           - name: revision
             value: main
           - name: pathInRepo
-            value: .tekton/tasks/cleanup-mta.yaml
+            value: tasks/cleanup-mta.yaml
 
     - name: deploy-operator
       runAfter:
@@ -101,7 +101,7 @@ spec:
           - name: revision
             value: main
           - name: pathInRepo
-            value: .tekton/tasks/deploy-mta-operator.yaml
+            value: tasks/deploy-mta-operator.yaml
 
     - name: run-koncur-hub-tests
       runAfter:
@@ -224,4 +224,4 @@ spec:
           - name: revision
             value: main
           - name: pathInRepo
-            value: .tekton/tasks/ocpctl-pool-release.yaml
+            value: tasks/ocpctl-pool-release.yaml

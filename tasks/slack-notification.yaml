@@ -22,6 +22,10 @@ spec:
       type: string
       default: "None"
       description: DAST scan execution status (Succeeded/Failed/None)
+    - name: koncurStatus
+      type: string
+      default: "None"
+      description: Koncur hub test execution status (Succeeded/Failed/None)
     - name: operatorNVR
       type: string
       default: "unknown"
@@ -36,6 +40,10 @@ spec:
       type: string
       default: "main"
       description: Branch used for UI E2E tests (e.g., main, release-0.10)
+    - name: koncurBranch
+      type: string
+      default: "main"
+      description: Branch used for koncur hub tests (e.g., main, release-0.10)
     - name: slackWebhookSecretName
       type: string
       default: "slack-webhook"
@@ -60,10 +68,12 @@ spec:
 
         UI_TEST_STATUS="$(params.testStatus)"
         DAST_STATUS="$(params.dastStatus)"
+        KONCUR_STATUS="$(params.koncurStatus)"
         OPERATOR_NVR="$(params.operatorNVR)"
         SNAPSHOT_JSON='$(params.snapshotJson)'
         PIPELINE_RUN="$(params.pipelineRunName)"
         TEST_BRANCH="$(params.testBranch)"
+        KONCUR_BRANCH="$(params.koncurBranch)"
 
         # Extract snapshot name from pipelineRun label
         SNAPSHOT_NAME=$(oc get pipelinerun "$PIPELINE_RUN" -o jsonpath='{.metadata.labels.appstudio\.openshift\.io/snapshot}' 2>/dev/null || true)
@@ -104,6 +114,7 @@ spec:
         echo "OCP Version: $OCP_VERSION"
         echo "UI Tests: $UI_TEST_STATUS"
         echo "DAST Scan: $DAST_STATUS"
+        echo "Koncur Tests: $KONCUR_STATUS"
 
         # UI test status - emoji for pass/fail, text for skipped
         if [ "$UI_TEST_STATUS" = "Succeeded" ]; then
@@ -123,6 +134,15 @@ spec:
           DAST_STATUS_TEXT="SKIPPED"
         fi
 
+        # Koncur test status - emoji for pass/fail, text for skipped
+        if [ "$KONCUR_STATUS" = "Succeeded" ]; then
+          KONCUR_STATUS_TEXT=":white_check_mark:"
+        elif [ "$KONCUR_STATUS" = "Failed" ]; then
+          KONCUR_STATUS_TEXT=":x:"
+        else
+          KONCUR_STATUS_TEXT="SKIPPED"
+        fi
+
         # Construct Konflux UI link
         PIPELINE_LINK="https://konflux-ui.apps.kflux-ocp-p01.7ayg.p1.openshiftapps.com/ns/art-mta-tenant/applications/$APPLICATION_NAME/pipelineruns/$PIPELINE_RUN"
 
@@ -132,9 +152,11 @@ spec:
           "snapshot": "$SNAPSHOT_NAME",
           "nvr": "$OPERATOR_NVR",
           "ocp_version": "$OCP_VERSION",
-          "branch": "$TEST_BRANCH",
+          "ui_branch": "$TEST_BRANCH",
+          "koncur_branch": "$KONCUR_BRANCH",
           "ui_tests": "$UI_STATUS_TEXT",
           "dast_scan": "$DAST_STATUS_TEXT",
+          "koncur_tests": "$KONCUR_STATUS_TEXT",
           "pipeline": "$PIPELINE_LINK"
         }
         EOF

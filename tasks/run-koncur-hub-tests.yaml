@@ -1,0 +1,124 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: run-koncur-hub-tests
+  labels:
+    app.kubernetes.io/version: "0.1"
+  annotations:
+    tekton.dev/pipelines.minVersion: "0.12.1"
+    tekton.dev/categories: Test
+    tekton.dev/tags: koncur,e2e,hub,mta
+    tekton.dev/displayName: "Run Koncur Hub Tests"
+spec:
+  description: >-
+    Run koncur hub E2E tests against deployed MTA instance.
+    Clones koncur repository, builds koncur CLI, and executes tackle-hub test suite.
+
+  params:
+    - name: uiRoute
+      type: string
+      description: MTA UI route (hostname only, without https://)
+    - name: gitRepository
+      type: string
+      default: "https://github.com/konveyor/koncur.git"
+      description: koncur repository URL
+    - name: koncurBranch
+      type: string
+      default: "main"
+      description: Branch to clone for tests
+
+  results:
+    - name: testStatus
+      description: Test execution status (PASSED or FAILED)
+
+  stepTemplate:
+    computeResources:
+      requests:
+        memory: 4Gi
+        cpu: "2"
+      limits:
+        memory: 8Gi
+        cpu: "4"
+
+  steps:
+    - name: run-tests
+      image: golang:1.25
+      env:
+        - name: SKIP_MAVEN
+          value: "false"
+      script: |
+        #!/bin/bash
+        set -euo pipefail
+        trap 'echo "FAILED" > $(results.testStatus.path)' ERR
+
+        UI_ROUTE="$(params.uiRoute)"
+        HUB_URL="https://${UI_ROUTE}/hub"
+
+        echo "Tackle Hub URL: $HUB_URL"
+
+        echo "Cloning koncur repository (branch: $(params.koncurBranch))..."
+        cd /tmp
+        git clone --depth 1 --branch "$(params.koncurBranch)" $(params.gitRepository)
+        cd koncur
+        KONCUR_REVISION="$(git rev-parse HEAD)"
+        echo "Using koncur revision: ${KONCUR_REVISION}"
+
+        echo "Building koncur..."
+        go build -o /usr/local/bin/koncur ./cmd/koncur/main.go
+
+        echo "Writing maven settings (test artifacts served from koncur repo)..."
+        mkdir -p .koncur/config
+        cat > .koncur/config/settings.xml <<EOF
+        <settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 https://maven.apache.org/xsd/settings-1.0.0.xsd">
+          <profiles>
+            <profile>
+              <id>konveyor-demo</id>
+              <repositories>
+                <repository>
+                  <id>konveyor-demo</id>
+                  <name>Konveyor demo test artifacts</name>
+                  <url>https://raw.githubusercontent.com/konveyor/koncur/${KONCUR_REVISION}/local-maven-resources</url>
+                  <releases><enabled>true</enabled></releases>
+                  <snapshots><enabled>true</enabled></snapshots>
+                </repository>
+              </repositories>
+            </profile>
+          </profiles>
+          <activeProfiles>
+            <activeProfile>konveyor-demo</activeProfile>
+          </activeProfiles>
+        </settings>
+        EOF
+
+        echo "Importing hub CA chain into the trust store..."
+        # golang:1.25 is Debian-based, so use update-ca-certificates
+        # (/usr/local/share/ca-certificates) rather than the RHEL
+        # update-ca-trust path. Go's HTTP client reads the system store.
+        openssl s_client -showcerts -connect "${UI_ROUTE}:443" </dev/null 2>/dev/null \
+          | sed -n '/-BEGIN CERTIFICATE-/,/-END CERTIFICATE-/p' \
+          > /usr/local/share/ca-certificates/hub-chain.crt
+        update-ca-certificates
+
+        echo "Writing tackle-hub target config..."
+        cat > .koncur/config/target-tackle-hub.yaml <<EOF
+        type: tackle-hub
+        tackleHub:
+          url: ${HUB_URL}
+          username: admin
+          password: admin
+          mavenSettings: ${PWD}/.koncur/config/settings.xml
+        EOF
+
+        echo "Running koncur hub tests..."
+        if koncur run tests -t tackle-hub \
+          --target-config .koncur/config/target-tackle-hub.yaml \
+          -o yaml --output-file test-hub.yaml; then
+          echo "✅ Tests PASSED"
+          echo "PASSED" > $(results.testStatus.path)
+        else
+          echo "❌ Tests FAILED"
+          echo "FAILED" > $(results.testStatus.path)
+          exit 1
+        fi

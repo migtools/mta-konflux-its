@@ -1,0 +1,293 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: mta-fbc-ui-koncur-e2e-pipeline
+spec:
+  description: |
+    Deploy MTA operator from FBC catalog to a leased pool cluster and run UI and koncur E2E tests.
+    Runs both UI Cypress tests and koncur hub tests sequentially on the same cluster for efficiency.
+    Uses OCPCTL cluster pools for instant access to pre-provisioned clusters.
+    Faster than ephemeral clusters (no 15-30 min provision wait).
+
+  params:
+    - name: SNAPSHOT
+      description: Application Snapshot JSON
+      type: string
+    - name: poolName
+      description: Name of the cluster pool to lease from
+      type: string
+      default: "ci-sno-pool-1"
+    - name: uiTestBranch
+      description: Branch of mta-tackle2-ui to use for UI E2E tests
+      type: string
+      default: "main"
+    - name: koncurBranch
+      description: Branch of konveyor/koncur to use for koncur hub tests
+      type: string
+      default: "main"
+
+  results:
+    - name: IMAGE_VERIFICATION
+      description: Pre-flight image pullability check status
+      value: $(tasks.verify-image-pullable.results.verificationStatus)
+    - name: LEASE_STATUS
+      description: Pool cluster lease status
+      value: $(tasks.lease-cluster.results.leaseStatus)
+    - name: CLUSTER_NAME
+      description: Name of the leased cluster
+      value: $(tasks.lease-cluster.results.clusterName)
+    - name: DEPLOYMENT_STATUS
+      description: Operator deployment status
+      value: $(tasks.deploy-operator.results.deploymentStatus)
+    - name: UI_TEST_OUTPUT
+      description: UI E2E test execution result
+      value: $(tasks.run-e2e-tests.results.testStatus)
+    - name: DAST_SCAN
+      description: DAST security scan result
+      value: $(tasks.run-dast-scan.results.scanStatus)
+    - name: KONCUR_TEST_OUTPUT
+      description: Koncur hub test execution result
+      value: $(tasks.run-koncur-hub-tests.results.testStatus)
+
+  tasks:
+    - name: parse-metadata
+      params:
+        - name: SNAPSHOT
+          value: $(params.SNAPSHOT)
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/konflux-ci/integration-examples
+          - name: revision
+            value: a1a70b0a1cfc96f5216d472fbd60f6b42780b3e5
+          - name: pathInRepo
+            value: tasks/test_metadata.yaml
+
+    - name: filter-ocp-version
+      runAfter:
+        - parse-metadata
+      params:
+        - name: pipelineRunName
+          value: $(context.pipelineRun.name)
+        - name: allowedOcpVersions
+          value: "4.20,4.21,4.22"
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/filter-ocp-version.yaml
+
+    - name: extract-operator-nvr
+      runAfter:
+        - filter-ocp-version
+      params:
+        - name: snapshotJson
+          value: $(params.SNAPSHOT)
+        - name: pipelineRunName
+          value: $(context.pipelineRun.name)
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/extract-operator-nvr.yaml
+
+    - name: verify-image-pullable
+      runAfter:
+        - extract-operator-nvr
+      params:
+        - name: fbcImage
+          value: $(tasks.parse-metadata.results.component-container-image)
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/verify-image-pullable.yaml
+
+    - name: lease-cluster
+      runAfter:
+        - verify-image-pullable
+      params:
+        - name: poolName
+          value: $(params.poolName)
+        - name: leaseDuration
+          value: "4"
+        - name: purpose
+          value: "MTA FBC E2E Testing"
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/ocpctl-pool-lease.yaml
+
+    - name: cleanup-existing-mta
+      runAfter:
+        - lease-cluster
+      params:
+        - name: clusterId
+          value: $(tasks.lease-cluster.results.clusterId)
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/cleanup-mta.yaml
+
+    - name: deploy-operator
+      runAfter:
+        - cleanup-existing-mta
+      params:
+        - name: clusterId
+          value: $(tasks.lease-cluster.results.clusterId)
+        - name: fbcImage
+          value: $(tasks.parse-metadata.results.component-container-image)
+        - name: snapshotJson
+          value: $(params.SNAPSHOT)
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/deploy-mta-operator.yaml
+
+    - name: run-dast-scan
+      runAfter:
+        - deploy-operator
+      when:
+        - input: "run"
+          operator: in
+          values: ["run"] # Set to "skip" to skip DAST scan
+      params:
+        - name: clusterId
+          value: $(tasks.lease-cluster.results.clusterId)
+        - name: mtaRoute
+          value: $(tasks.deploy-operator.results.uiRoute)
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/run-dast-scan.yaml
+
+    - name: run-e2e-tests
+      runAfter:
+        - run-dast-scan
+      when:
+        - input: "run"
+          operator: in
+          values: ["run"] # Set to "skip" to skip UI tests
+      params:
+        - name: uiRoute
+          value: $(tasks.deploy-operator.results.uiRoute)
+        - name: gitBranch
+          value: $(params.uiTestBranch)
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/run-ui-e2e-tests.yaml
+
+    - name: run-koncur-hub-tests
+      runAfter:
+        - run-e2e-tests
+      when:
+        - input: "run"
+          operator: in
+          values: ["run"] # Set to "skip" to skip koncur tests
+      params:
+        - name: uiRoute
+          value: $(tasks.deploy-operator.results.uiRoute)
+        - name: koncurBranch
+          value: $(params.koncurBranch)
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/run-koncur-hub-tests.yaml
+
+  finally:
+    - name: release-cluster
+      when:
+        - input: "$(tasks.lease-cluster.status)"
+          operator: in
+          values: ["Succeeded"]
+      params:
+        - name: clusterId
+          value: $(tasks.lease-cluster.results.clusterId)
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/ocpctl-pool-release.yaml
+
+    - name: slack-notification
+      when:
+        - input: "run"
+          operator: in
+          values: ["run"] # Set to "skip" to disable Slack notifications during testing
+        - input: "$(tasks.run-koncur-hub-tests.status)"
+          operator: in
+          values: ["Succeeded", "Failed"] # Only send if koncur tests ran
+      params:
+        - name: testStatus
+          value: "$(tasks.run-e2e-tests.status)"
+        - name: dastStatus
+          value: "$(tasks.run-dast-scan.status)"
+        - name: koncurStatus
+          value: "$(tasks.run-koncur-hub-tests.status)"
+        - name: operatorNVR
+          value: "$(tasks.extract-operator-nvr.results.operatorNVR)"
+        - name: snapshotJson
+          value: "$(params.SNAPSHOT)"
+        - name: pipelineRunName
+          value: "$(context.pipelineRun.name)"
+        - name: testBranch
+          value: "$(params.uiTestBranch)"
+        - name: koncurBranch
+          value: "$(params.koncurBranch)"
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/slack-notification.yaml

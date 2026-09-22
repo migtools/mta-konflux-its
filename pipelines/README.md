@@ -19,12 +19,14 @@ cluster and runs both UI Cypress tests and koncur hub tests sequentially on the 
 
 ```
 parse-metadata → filter-ocp-version → extract-operator-nvr → verify-image-pullable
-  → lease-cluster → cleanup-existing-mta → deploy-operator → run-dast-scan 
-  → run-e2e-tests → run-koncur-hub-tests
+  → lease-cluster → cleanup-existing-mta → deploy-operator
+  → ┌─ run-dast-scan
+    ├─ run-e2e-tests (UI Cypress)
+    └─ run-koncur-hub-tests
 finally: release-cluster, slack-notification
 ```
 
-Tests run sequentially: DAST scan → UI Cypress tests → koncur hub tests
+Tests run **in parallel** after deployment: DAST scan, UI Cypress tests, and koncur hub tests all run simultaneously for faster execution.
 
 ### Parameters
 

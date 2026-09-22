@@ -5,7 +5,7 @@ metadata:
 spec:
   description: |
     Deploy MTA operator from FBC catalog to a leased pool cluster and run UI and koncur E2E tests.
-    Runs both UI Cypress tests and koncur hub tests sequentially on the same cluster for efficiency.
+    Runs UI Cypress tests, DAST scan, and koncur hub tests in parallel on the same cluster for maximum speed.
     Uses OCPCTL cluster pools for instant access to pre-provisioned clusters.
     Faster than ephemeral clusters (no 15-30 min provision wait).
 
@@ -196,7 +196,7 @@ spec:
 
     - name: run-e2e-tests
       runAfter:
-        - run-dast-scan
+        - deploy-operator
       when:
         - input: "run"
           operator: in
@@ -218,7 +218,7 @@ spec:
 
     - name: run-koncur-hub-tests
       runAfter:
-        - run-e2e-tests
+        - deploy-operator
       when:
         - input: "run"
           operator: in

@@ -1,0 +1,184 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: install-agent-sandbox
+  labels:
+    app.kubernetes.io/version: "0.1"
+  annotations:
+    tekton.dev/pipelines.minVersion: "0.12.1"
+    tekton.dev/categories: Deployment
+    tekton.dev/tags: mta,agentic,openshift
+    tekton.dev/displayName: "Install Agent Sandbox"
+spec:
+  description: >-
+    Install the Agent Sandbox operator, which provides the
+    sandboxes.agents.x-k8s.io CRD the agentic controller is gated on. Must run
+    before the Tackle CR sets agentic_enabled, or the CR parks at
+    AgenticControllerReady=AgentSandboxMissing with no console.
+
+    Agent Sandbox is built in its own Konflux tenant, one FBC per OCP minor,
+    on a release cadence of its own. The newest non-expiring tag for the
+    cluster's version is resolved at run time.
+
+  params:
+    - name: clusterId
+      type: string
+      description: UUID of the cluster to install into
+    - name: channel
+      type: string
+      default: "preview-0.9"
+      description: Subscription channel
+    - name: tagPrefix
+      type: string
+      default: "0.9"
+      description: Version prefix of the FBC tags to consider
+    - name: fbcRepo
+      type: string
+      default: "quay.io/redhat-user-workloads/ose-osc-tenant/agent-sandbox-fbc"
+      description: FBC repository, suffixed with the cluster's OCP minor
+    - name: ocpctlUrl
+      type: string
+      default: "https://ocpctl.mg.dog8code.com/api/v1"
+      description: OCPCTL API base URL
+    - name: ocpctlSecretName
+      type: string
+      default: "ocpctl-ci-key"
+      description: Name of the Kubernetes Secret containing the OCPCTL API key
+
+  results:
+    - name: installStatus
+      description: Install status (SUCCESS or FAILED)
+    - name: fbcImage
+      description: The Agent Sandbox FBC image that was used
+
+  volumes:
+    - name: credentials
+      emptyDir: {}
+
+  steps:
+    - name: install
+      image: registry.redhat.io/openshift4/ose-cli:latest
+      volumeMounts:
+        - name: credentials
+          mountPath: /credentials
+      env:
+        - name: OCPCTL_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: $(params.ocpctlSecretName)
+              key: api-key
+      script: |
+        #!/bin/bash
+        set -euo pipefail
+
+        # Write both results up front. A declared result that is never written
+        # leaves the TaskRun reporting missing results instead of the failure.
+        echo -n "FAILED" > $(results.installStatus.path)
+        echo -n "" > $(results.fbcImage.path)
+
+        OCPCTL_URL="$(params.ocpctlUrl)"
+        CLUSTER_ID="$(params.clusterId)"
+
+        echo "Downloading kubeconfig for cluster: $CLUSTER_ID"
+        HTTP=$(curl -s -o /credentials/kubeconfig -w '%{http_code}' \
+          -H "Authorization: Bearer $OCPCTL_API_KEY" \
+          "$OCPCTL_URL/clusters/$CLUSTER_ID/kubeconfig")
+        if [ "$HTTP" != "200" ] || [ ! -s /credentials/kubeconfig ]; then
+          echo "❌ Failed to download kubeconfig (HTTP $HTTP)"
+          exit 1
+        fi
+        export KUBECONFIG=/credentials/kubeconfig
+
+        OCP_MINOR=$(oc get clusterversion version \
+          -o jsonpath='{.status.desired.version}' | cut -d. -f1,2)
+        REPO="$(params.fbcRepo)-${OCP_MINOR//./-}"
+        echo "Cluster is OCP ${OCP_MINOR}, looking in ${REPO}"
+
+        # Parsed rather than grepped: the image has python3, and the tag list
+        # carries the expiry that decides which tag is safe to pin a
+        # CatalogSource to. The newest tag is often a short-lived one - pick
+        # the newest that does not expire, or the CatalogSource starts pulling
+        # a tag that no longer exists and the only symptom is a CRD timeout.
+        FBC=$(TAG_PREFIX="$(params.tagPrefix)" REPO="${REPO#quay.io/}" python3 - <<'PY'
+        import json, os, sys, urllib.request
+
+        repo, prefix = os.environ["REPO"], os.environ["TAG_PREFIX"]
+        url = ("https://quay.io/api/v1/repository/%s/tag/"
+               "?limit=100&onlyActiveTags=true" % repo)
+        with urllib.request.urlopen(url, timeout=60) as r:
+            tags = json.load(r).get("tags") or []
+
+        skip = ("-source", ".att", ".sbom", ".sig")
+        cands = [t for t in tags
+                 if t["name"].startswith(prefix) and not t["name"].endswith(skip)]
+        durable = [t for t in cands if not t.get("expiration")]
+        chosen = sorted(durable or cands,
+                        key=lambda t: t.get("start_ts") or 0, reverse=True)
+        if not chosen:
+            sys.exit("no %s tag in %s" % (prefix, repo))
+        if not durable:
+            print("all candidate tags expire; using the newest anyway",
+                  file=sys.stderr)
+        print("quay.io/%s:%s" % (repo, chosen[0]["name"]))
+        PY
+        )
+        echo "Using ${FBC}"
+        echo -n "${FBC}" > $(results.fbcImage.path)
+
+        cat <<EOF | oc apply -f -
+        apiVersion: operators.coreos.com/v1alpha1
+        kind: CatalogSource
+        metadata:
+          name: agent-sandbox-catalog
+          namespace: openshift-marketplace
+        spec:
+          sourceType: grpc
+          image: ${FBC}
+          displayName: Agent Sandbox (pre-GA)
+          publisher: Red Hat
+        ---
+        apiVersion: operators.coreos.com/v1alpha1
+        kind: Subscription
+        metadata:
+          name: agent-sandbox-operator
+          namespace: openshift-operators
+        spec:
+          channel: $(params.channel)
+          name: agent-sandbox-operator
+          source: agent-sandbox-catalog
+          sourceNamespace: openshift-marketplace
+          installPlanApproval: Automatic
+        EOF
+
+        # Wait on the CSV, not on the CRD. These are leased pool clusters and
+        # nothing removes the sandbox between leases, so a CRD left by an
+        # earlier run would satisfy a presence check instantly and the run
+        # would test the previous FBC.
+        echo "Waiting for the agent-sandbox CSV to install..."
+        for i in $(seq 1 90); do
+          PHASE=$(oc get csv -n openshift-operators \
+            -o jsonpath='{.items[?(@.spec.displayName)].status.phase}' 2>/dev/null \
+            | tr ' ' '\n' | sort -u | tr '\n' ' ')
+          if oc get csv -n openshift-operators 2>/dev/null \
+             | grep -i "agent-sandbox" | grep -q Succeeded; then
+            break
+          fi
+          sleep 10
+        done
+
+        if ! oc get csv -n openshift-operators 2>/dev/null \
+             | grep -i "agent-sandbox" | grep -q Succeeded; then
+          echo "❌ agent-sandbox CSV never reached Succeeded"
+          oc get csv -n openshift-operators | grep -i agent-sandbox || true
+          oc get subscription agent-sandbox-operator -n openshift-operators \
+            -o jsonpath='{range .status.conditions[*]}{.type}={.status} {.reason}: {.message}{"\n"}{end}' || true
+          exit 1
+        fi
+
+        if ! oc get crd sandboxes.agents.x-k8s.io >/dev/null 2>&1; then
+          echo "❌ CSV installed but sandboxes.agents.x-k8s.io is absent"
+          exit 1
+        fi
+
+        echo "✅ Agent Sandbox installed and the CRD is present"
+        echo -n "SUCCESS" > $(results.installStatus.path)

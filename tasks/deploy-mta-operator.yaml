@@ -38,6 +38,13 @@ spec:
       type: string
       default: "openshift-mta"
       description: Namespace to install the operator
+    - name: agenticEnabled
+      type: string
+      default: "false"
+      description: |
+        Set agentic_enabled on the Tackle CR. Requires the Agent Sandbox CRD,
+        which the operator gates on: without it the CR parks at
+        AgenticControllerReady=AgentSandboxMissing.
     - name: configureRegistryMirror
       type: string
       default: "true"
@@ -379,6 +386,7 @@ spec:
           hub_bucket_volume_size: "25Gi"
           cache_data_volume_size: "25Gi"
           feature_auth_required: "true"
+          agentic_enabled: $(params.agenticEnabled)
         EOF
 
         echo "Waiting for MTA UI deployment to be created..."

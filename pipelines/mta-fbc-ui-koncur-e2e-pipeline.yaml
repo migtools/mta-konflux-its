@@ -45,6 +45,12 @@ spec:
     - name: DAST_SCAN
       description: DAST security scan result
       value: $(tasks.run-dast-scan.results.scanStatus)
+    - name: AGENTIC_SANITY
+      description: Agentic console sanity check result
+      value: $(tasks.verify-agentic-sanity.results.sanityStatus)
+    - name: AGENTIC_SETUP
+      description: Agentic fixtures (emulator, Gateway, application) setup result
+      value: $(tasks.setup-agentic.results.setupStatus)
     - name: KONCUR_TEST_OUTPUT
       description: Koncur hub test execution result
       value: $(tasks.run-koncur-hub-tests.results.testStatus)
@@ -152,9 +158,25 @@ spec:
           - name: pathInRepo
             value: tasks/cleanup-mta.yaml
 
-    - name: deploy-operator
+    - name: install-agent-sandbox
       runAfter:
         - cleanup-existing-mta
+      params:
+        - name: clusterId
+          value: $(tasks.lease-cluster.results.clusterId)
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/install-agent-sandbox.yaml
+
+    - name: deploy-operator
+      runAfter:
+        - install-agent-sandbox
       params:
         - name: clusterId
           value: $(tasks.lease-cluster.results.clusterId)
@@ -162,6 +184,8 @@ spec:
           value: $(tasks.parse-metadata.results.component-container-image)
         - name: snapshotJson
           value: $(params.SNAPSHOT)
+        - name: agenticEnabled
+          value: "true"
       taskRef:
         resolver: git
         params:
@@ -171,6 +195,42 @@ spec:
             value: main
           - name: pathInRepo
             value: tasks/deploy-mta-operator.yaml
+
+    - name: verify-agentic-sanity
+      # Last, not alongside the others: run-dast-scan patches
+      # feature_auth_required and restarts the UI, which reconciles the Tackle
+      # CR and can flip AgenticControllerReady underneath these checks, and
+      # setup-agentic seeds into the same Hub the other suites are using.
+      runAfter:
+        - run-koncur-hub-tests
+      params:
+        - name: clusterId
+          value: $(tasks.lease-cluster.results.clusterId)
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/verify-agentic-sanity.yaml
+
+    - name: setup-agentic
+      runAfter:
+        - verify-agentic-sanity
+      params:
+        - name: clusterId
+          value: $(tasks.lease-cluster.results.clusterId)
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/setup-agentic.yaml
 
     - name: run-dast-scan
       runAfter:
@@ -272,6 +332,10 @@ spec:
           value: "$(tasks.run-dast-scan.status)"
         - name: koncurStatus
           value: "$(tasks.run-koncur-hub-tests.status)"
+        - name: agenticSanityStatus
+          value: "$(tasks.verify-agentic-sanity.status)"
+        - name: agenticSetupStatus
+          value: "$(tasks.setup-agentic.status)"
         - name: operatorNVR
           value: "$(tasks.extract-operator-nvr.results.operatorNVR)"
         - name: snapshotJson

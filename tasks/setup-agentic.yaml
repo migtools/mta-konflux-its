@@ -1,0 +1,175 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: setup-agentic
+  labels:
+    app.kubernetes.io/version: "0.1"
+  annotations:
+    tekton.dev/pipelines.minVersion: "0.12.1"
+    tekton.dev/categories: Testing
+    tekton.dev/tags: mta,agentic,openshift
+    tekton.dev/displayName: "Set Up Agentic Fixtures"
+spec:
+  description: >-
+    Give an agentic run something to talk to and something to run against: an
+    LLM emulator serving a scripted conversation, a Gateway pointing at it, and
+    an application. No model credentials and no egress to a provider, so the
+    result is the same on every snapshot.
+
+    The scripts come from konveyor/operator rather than being copied here, the
+    same way the UI and koncur tests come from their own repos. They are
+    fetched at a pinned ref with curl, because the image has no git.
+
+  params:
+    - name: clusterId
+      type: string
+      description: UUID of the cluster to set up
+    - name: namespace
+      type: string
+      default: "openshift-mta"
+      description: Namespace MTA is installed in
+    - name: tackleName
+      type: string
+      default: "mta"
+      description: Name of the Tackle CR
+    - name: operatorRepo
+      type: string
+      default: "konveyor/operator"
+      description: Repo holding the agentic setup scripts
+    - name: operatorRef
+      type: string
+      default: "main"
+      description: |
+        Ref to take the scripts from. A downstream pipeline pinning an upstream
+        ref is deliberate: pin a tag or a commit to stop an upstream change
+        turning this red for reasons unrelated to the snapshot under test.
+    - name: appName
+      type: string
+      default: "agentic-e2e"
+      description: Application the run clones
+    - name: appRepo
+      type: string
+      default: "https://github.com/konveyor/tackle-testapp-public.git"
+      description: Repository that application points at
+    - name: ocpctlUrl
+      type: string
+      default: "https://ocpctl.mg.dog8code.com/api/v1"
+      description: OCPCTL API base URL
+    - name: ocpctlSecretName
+      type: string
+      default: "ocpctl-ci-key"
+      description: Name of the Kubernetes Secret containing the OCPCTL API key
+
+  volumes:
+    - name: credentials
+      emptyDir: {}
+
+  results:
+    - name: setupStatus
+      description: Setup status (SUCCESS or FAILED)
+    - name: gatewayName
+      description: Name of the Gateway that was created
+
+  steps:
+    - name: setup
+      image: registry.redhat.io/openshift4/ose-cli:latest
+      # onError so the log step below still runs: Tekton skips the rest of a
+      # task's steps once one exits non-zero.
+      onError: continue
+      volumeMounts:
+        - name: credentials
+          mountPath: /credentials
+      env:
+        - name: OCPCTL_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: $(params.ocpctlSecretName)
+              key: api-key
+      script: |
+        #!/bin/bash
+        set -euo pipefail
+
+        echo -n "FAILED" > $(results.setupStatus.path)
+        echo -n "llemulator" > $(results.gatewayName.path)
+
+        OCPCTL_URL="$(params.ocpctlUrl)"
+        CLUSTER_ID="$(params.clusterId)"
+
+        echo "Downloading kubeconfig for cluster: $CLUSTER_ID"
+        HTTP=$(curl -s -o /credentials/kubeconfig -w '%{http_code}' \
+          -H "Authorization: Bearer $OCPCTL_API_KEY" \
+          "$OCPCTL_URL/clusters/$CLUSTER_ID/kubeconfig")
+        if [ "$HTTP" != "200" ] || [ ! -s /credentials/kubeconfig ]; then
+          echo "❌ Failed to download kubeconfig (HTTP $HTTP)"
+          exit 1
+        fi
+        export KUBECONFIG=/credentials/kubeconfig
+
+        # Mirror the layout the scripts expect: setup-agentic.sh reaches its
+        # neighbour at ../llm-proxy/setup-llemulator.sh.
+        RAW="https://raw.githubusercontent.com/$(params.operatorRepo)/$(params.operatorRef)"
+        mkdir -p /tmp/op/test/e2e/agentic /tmp/op/test/e2e/llm-proxy
+        for f in test/e2e/agentic/setup-agentic.sh \
+                 test/e2e/agentic/llemulator-script.json \
+                 test/e2e/llm-proxy/setup-llemulator.sh \
+                 test/e2e/seed-application.sh; do
+          if ! curl -sfL -o "/tmp/op/$f" "$RAW/$f"; then
+            echo "❌ Could not fetch $f from $(params.operatorRepo)@$(params.operatorRef)"
+            exit 1
+          fi
+        done
+        chmod +x /tmp/op/test/e2e/agentic/setup-agentic.sh \
+                 /tmp/op/test/e2e/llm-proxy/setup-llemulator.sh \
+                 /tmp/op/test/e2e/seed-application.sh
+
+        echo "=== Emulator and Gateway"
+        NAMESPACE="$(params.namespace)" \
+        TACKLE_NAME="$(params.tackleName)" \
+          /tmp/op/test/e2e/agentic/setup-agentic.sh
+
+        echo "=== Application"
+        # The Hub here runs with feature_auth_required, and seeding talks to it
+        # unauthenticated. Drop auth for the seed and restore it, rather than
+        # carrying a token through the pipeline.
+        AUTH_WAS=$(oc get tackle "$(params.tackleName)" -n "$(params.namespace)" \
+          -o jsonpath='{.spec.feature_auth_required}' 2>/dev/null || echo "")
+        if [ "${AUTH_WAS}" = "true" ]; then
+          oc patch tackle "$(params.tackleName)" -n "$(params.namespace)" --type=merge \
+            -p '{"spec":{"feature_auth_required":"false"}}'
+          oc rollout status deployment/mta-hub -n "$(params.namespace)" --timeout=300s
+        fi
+
+        SEED_RC=0
+        NAMESPACE="$(params.namespace)" \
+        APP_NAME="$(params.appName)" \
+        APP_REPO="$(params.appRepo)" \
+          /tmp/op/test/e2e/seed-application.sh || SEED_RC=$?
+
+        if [ "${AUTH_WAS}" = "true" ]; then
+          oc patch tackle "$(params.tackleName)" -n "$(params.namespace)" --type=merge \
+            -p '{"spec":{"feature_auth_required":"true"}}'
+          oc rollout status deployment/mta-hub -n "$(params.namespace)" --timeout=300s
+        fi
+        [ "${SEED_RC}" -eq 0 ] || exit "${SEED_RC}"
+
+        echo -n "SUCCESS" > $(results.setupStatus.path)
+
+    - name: emulator-log-on-failure
+      image: registry.redhat.io/openshift4/ose-cli:latest
+      volumeMounts:
+        - name: credentials
+          mountPath: /credentials
+      script: |
+        #!/bin/bash
+        # The step above continues on error so this one runs. /tekton/results
+        # and the shared volume are the only things that cross the step
+        # boundary - steps are separate containers and do not share /tmp.
+        if grep -q SUCCESS "$(results.setupStatus.path)" 2>/dev/null; then
+          exit 0
+        fi
+        export KUBECONFIG=/credentials/kubeconfig
+        oc -n "$(params.namespace)" logs deployment/llemulator --tail=200 || true
+        oc -n "$(params.namespace)" get gateways.konveyor.io -o yaml || true
+        oc -n "$(params.namespace)" get agents.konveyor.io || true
+        # Fail the task, which the continuing step above did not.
+        exit 1

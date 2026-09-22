@@ -1,0 +1,160 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: verify-agentic-sanity
+  labels:
+    app.kubernetes.io/version: "0.1"
+  annotations:
+    tekton.dev/pipelines.minVersion: "0.12.1"
+    tekton.dev/categories: Testing
+    tekton.dev/tags: mta,agentic,openshift
+    tekton.dev/displayName: "Verify Agentic Sanity"
+spec:
+  description: >-
+    Check that the agentic console came up and its shipped content is present.
+    Deliberately cheap: no model, no Gateway, no run, so it needs no
+    credentials and answers the question "is this completely broken" on every
+    snapshot.
+
+  params:
+    - name: clusterId
+      type: string
+      description: UUID of the cluster to check
+    - name: namespace
+      type: string
+      default: "openshift-mta"
+      description: Namespace MTA is installed in
+    - name: tackleName
+      type: string
+      default: "mta"
+      description: Name of the Tackle CR
+    - name: ocpctlUrl
+      type: string
+      default: "https://ocpctl.mg.dog8code.com/api/v1"
+      description: OCPCTL API base URL
+    - name: ocpctlSecretName
+      type: string
+      default: "ocpctl-ci-key"
+      description: Name of the Kubernetes Secret containing the OCPCTL API key
+
+  results:
+    - name: sanityStatus
+      description: Sanity check status (SUCCESS or FAILED)
+
+  volumes:
+    - name: credentials
+      emptyDir: {}
+
+  steps:
+    - name: verify
+      image: registry.redhat.io/openshift4/ose-cli:latest
+      volumeMounts:
+        - name: credentials
+          mountPath: /credentials
+      env:
+        - name: OCPCTL_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: $(params.ocpctlSecretName)
+              key: api-key
+      script: |
+        #!/bin/bash
+        set -euo pipefail
+
+        echo -n "FAILED" > $(results.sanityStatus.path)
+
+        OCPCTL_URL="$(params.ocpctlUrl)"
+        CLUSTER_ID="$(params.clusterId)"
+        NAMESPACE="$(params.namespace)"
+        TACKLE="$(params.tackleName)"
+
+        echo "Downloading kubeconfig for cluster: $CLUSTER_ID"
+        HTTP=$(curl -s -o /credentials/kubeconfig -w '%{http_code}' \
+          -H "Authorization: Bearer $OCPCTL_API_KEY" \
+          "$OCPCTL_URL/clusters/$CLUSTER_ID/kubeconfig")
+        if [ "$HTTP" != "200" ] || [ ! -s /credentials/kubeconfig ]; then
+          echo "❌ Failed to download kubeconfig (HTTP $HTTP)"
+          exit 1
+        fi
+        export KUBECONFIG=/credentials/kubeconfig
+
+        FAILURES=0
+        fail() { echo "❌ $*"; FAILURES=$((FAILURES + 1)); }
+
+        echo "--- Agent Sandbox CRD"
+        if oc get crd sandboxes.agents.x-k8s.io &>/dev/null; then
+          echo "✅ present"
+        else
+          fail "sandboxes.agents.x-k8s.io missing, so the controller cannot deploy"
+        fi
+
+        echo "--- AgenticControllerReady"
+        # The operator distinguishes Disabled, AgentSandboxMissing,
+        # DefaultContentImageBindingInvalid and DeploymentNotReady, so its own
+        # reason is the diagnosis and is worth printing verbatim.
+        COND=$(oc get tackle "$TACKLE" -n "$NAMESPACE" -o \
+          jsonpath='{range .status.conditions[?(@.type=="AgenticControllerReady")]}{.status}|{.reason}|{.message}{end}' 2>/dev/null || true)
+        echo "   ${COND:-<condition not set>}"
+        case "${COND%%|*}" in
+          True) echo "✅ ready" ;;
+          *)    fail "agentic controller not ready" ;;
+        esac
+
+        echo "--- Shipped content"
+        # Names come from the operator's curated default content. A missing one
+        # means the content did not reconcile, which the condition above can
+        # still report as ready.
+        for agent in migration-plan-agent migration-execute-agent migration-verify-agent; do
+          if oc get agents.konveyor.io "$agent" -n "$NAMESPACE" &>/dev/null; then
+            echo "✅ agent ${agent}"
+          else
+            fail "agent ${agent} missing"
+          fi
+        done
+        if oc get agentworkflows.konveyor.io java-ee-to-quarkus -n "$NAMESPACE" &>/dev/null; then
+          echo "✅ workflow java-ee-to-quarkus"
+        else
+          fail "workflow java-ee-to-quarkus missing"
+        fi
+        for card in plan execute verify javaee-to-quarkus house-rules; do
+          if oc get skillcards.konveyor.io "$card" -n "$NAMESPACE" &>/dev/null; then
+            echo "✅ skillcard ${card}"
+          else
+            fail "skillcard ${card} missing"
+          fi
+        done
+
+        if oc get skillcollections.konveyor.io java-migration-skills -n "$NAMESPACE" &>/dev/null; then
+          echo "✅ skillcollection java-migration-skills"
+        else
+          fail "skillcollection java-migration-skills missing"
+        fi
+
+        echo "--- Agents Ready"
+        # Name and status listed separately and compared here: a filter nested
+        # inside a filter is not valid jsonpath, and it fails at parse time,
+        # which is quiet enough to look like a pass.
+        NOT_READY=""
+        for agent in $(oc get agents.konveyor.io -n "$NAMESPACE" \
+          -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}'); do
+          STATUS=$(oc get agents.konveyor.io "$agent" -n "$NAMESPACE" -o \
+            jsonpath='{.status.conditions[?(@.type=="Ready")].status}')
+          [ "$STATUS" = "True" ] || NOT_READY="${NOT_READY}${agent}(${STATUS:-none}) "
+        done
+        if [ -n "$NOT_READY" ]; then
+          fail "agents not Ready: ${NOT_READY}"
+        else
+          echo "✅ all agents Ready"
+        fi
+
+        if [ "$FAILURES" -gt 0 ]; then
+          echo ""
+          echo "${FAILURES} check(s) failed. Controller state:"
+          oc get deployment agentic-controller -n "$NAMESPACE" -o wide || true
+          oc logs deployment/agentic-controller -n "$NAMESPACE" --tail=80 || true
+          exit 1
+        fi
+
+        echo ""
+        echo "✅ Agentic sanity checks passed"
+        echo -n "SUCCESS" > $(results.sanityStatus.path)

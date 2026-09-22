@@ -26,6 +26,14 @@ spec:
       type: string
       default: "None"
       description: Koncur hub test execution status (Succeeded/Failed/None)
+    - name: agenticSanityStatus
+      type: string
+      default: "None"
+      description: Agentic sanity check status (Succeeded/Failed/None)
+    - name: agenticSetupStatus
+      type: string
+      default: "None"
+      description: Agentic fixtures setup status (Succeeded/Failed/None)
     - name: operatorNVR
       type: string
       default: "unknown"
@@ -69,6 +77,8 @@ spec:
         UI_TEST_STATUS="$(params.testStatus)"
         DAST_STATUS="$(params.dastStatus)"
         KONCUR_STATUS="$(params.koncurStatus)"
+        AGENTIC_SANITY_STATUS="$(params.agenticSanityStatus)"
+        AGENTIC_SETUP_STATUS="$(params.agenticSetupStatus)"
         OPERATOR_NVR="$(params.operatorNVR)"
         SNAPSHOT_JSON='$(params.snapshotJson)'
         PIPELINE_RUN="$(params.pipelineRunName)"
@@ -115,6 +125,7 @@ spec:
         echo "UI Tests: $UI_TEST_STATUS"
         echo "DAST Scan: $DAST_STATUS"
         echo "Koncur Tests: $KONCUR_STATUS"
+        echo "Agentic: sanity=$AGENTIC_SANITY_STATUS setup=$AGENTIC_SETUP_STATUS"
 
         # UI test status - emoji for pass/fail, text for skipped
         if [ "$UI_TEST_STATUS" = "Succeeded" ]; then
@@ -143,6 +154,18 @@ spec:
           KONCUR_STATUS_TEXT="SKIPPED"
         fi
 
+        # Agentic status - the two tasks reported as one line, since a reader
+        # wants "did the agentic side work", and either failing means no.
+        if [ "$AGENTIC_SANITY_STATUS" = "Succeeded" ] && \
+           [ "$AGENTIC_SETUP_STATUS" = "Succeeded" ]; then
+          AGENTIC_STATUS_TEXT=":white_check_mark:"
+        elif [ "$AGENTIC_SANITY_STATUS" = "Failed" ] || \
+             [ "$AGENTIC_SETUP_STATUS" = "Failed" ]; then
+          AGENTIC_STATUS_TEXT=":x:"
+        else
+          AGENTIC_STATUS_TEXT="SKIPPED"
+        fi
+
         # Construct Konflux UI link
         PIPELINE_LINK="https://konflux-ui.apps.kflux-ocp-p01.7ayg.p1.openshiftapps.com/ns/art-mta-tenant/applications/$APPLICATION_NAME/pipelineruns/$PIPELINE_RUN"
 
@@ -157,6 +180,7 @@ spec:
           "ui_tests": "$UI_STATUS_TEXT",
           "dast_scan": "$DAST_STATUS_TEXT",
           "koncur_tests": "$KONCUR_STATUS_TEXT",
+          "agentic": "$AGENTIC_STATUS_TEXT",
           "pipeline": "$PIPELINE_LINK"
         }
         EOF

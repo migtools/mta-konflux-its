@@ -242,6 +242,8 @@ spec:
             value: tasks/run-koncur-hub-tests.yaml
 
     - name: release-cluster
+      runAfter:
+        - run-koncur-hub-tests
       when:
         - input: "$(tasks.lease-cluster.status)"
           operator: in
@@ -260,6 +262,8 @@ spec:
             value: tasks/ocpctl-pool-release.yaml
 
     - name: slack-notification
+      runAfter:
+        - run-koncur-hub-tests
       when:
         - input: "run"
           operator: in

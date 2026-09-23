@@ -6,7 +6,8 @@ spec:
   description: |
     Deploy MTA operator from FBC catalog to a leased pool cluster and run UI and koncur E2E tests.
     Runs UI Cypress tests and DAST scan in parallel after deployment for faster execution.
-    Koncur hub tests run in finally section, ensuring they execute even if UI or DAST fail.
+    Finally task runs koncur tests, releases cluster, and sends Slack notification sequentially,
+    ensuring they execute even if UI or DAST fail.
     Uses OCPCTL cluster pools for instant access to pre-provisioned clusters.
     Faster than ephemeral clusters (no 15-30 min provision wait).
 
@@ -52,7 +53,7 @@ spec:
       value: $(tasks.run-dast-scan.results.scanStatus)
     - name: KONCUR_TEST_OUTPUT
       description: Koncur hub test execution result
-      value: $(finally.run-koncur-hub-tests.results.testStatus)
+      value: $(finally.koncur-cleanup-notify.results.koncurStatus)
 
   tasks:
     - name: parse-metadata
@@ -224,66 +225,30 @@ spec:
             value: tasks/run-ui-e2e-tests.yaml
 
   finally:
-    - name: run-koncur-hub-tests
+    - name: koncur-cleanup-notify
       when:
-        - input: "run"
-          operator: in
-          values: ["run"] # Set to "skip" to skip koncur tests
         - input: "$(tasks.deploy-operator.status)"
           operator: in
           values: ["Succeeded"] # Only run if deployment succeeded
+        - input: "$(tasks.lease-cluster.status)"
+          operator: in
+          values: ["Succeeded"] # Only run if cluster was leased
       params:
+        # Koncur test params
         - name: uiRoute
           value: $(tasks.deploy-operator.results.uiRoute)
         - name: koncurBranch
           value: $(params.koncurBranch)
-      taskRef:
-        resolver: git
-        params:
-          - name: url
-            value: https://github.com/migtools/mta-konflux-its
-          - name: revision
-            value: main
-          - name: pathInRepo
-            value: tasks/run-koncur-hub-tests.yaml
-
-    - name: release-cluster
-      runAfter:
-        - run-koncur-hub-tests
-      when:
-        - input: "$(tasks.lease-cluster.status)"
-          operator: in
-          values: ["Succeeded"]
-      params:
+        - name: runKoncur
+          value: "run" # Set to "skip" to skip koncur tests
+        # Cluster release params
         - name: clusterId
           value: $(tasks.lease-cluster.results.clusterId)
-      taskRef:
-        resolver: git
-        params:
-          - name: url
-            value: https://github.com/migtools/mta-konflux-its
-          - name: revision
-            value: main
-          - name: pathInRepo
-            value: tasks/ocpctl-pool-release.yaml
-
-    - name: slack-notification
-      runAfter:
-        - run-koncur-hub-tests
-      when:
-        - input: "run"
-          operator: in
-          values: ["run"] # Set to "skip" to disable Slack notifications during testing
-        - input: "$(finally.run-koncur-hub-tests.status)"
-          operator: in
-          values: ["Succeeded", "Failed"] # Only send if koncur tests ran
-      params:
+        # Slack notification params
         - name: testStatus
           value: "$(tasks.run-e2e-tests.status)"
         - name: dastStatus
           value: "$(tasks.run-dast-scan.status)"
-        - name: koncurStatus
-          value: "$(finally.run-koncur-hub-tests.status)"
         - name: operatorNVR
           value: "$(tasks.extract-operator-nvr.results.operatorNVR)"
         - name: snapshotJson
@@ -292,8 +257,8 @@ spec:
           value: "$(context.pipelineRun.name)"
         - name: testBranch
           value: "$(params.uiTestBranch)"
-        - name: koncurBranch
-          value: "$(params.koncurBranch)"
+        - name: sendSlack
+          value: "run" # Set to "skip" to disable Slack notifications
       taskRef:
         resolver: git
         params:
@@ -302,4 +267,4 @@ spec:
           - name: revision
             value: main
           - name: pathInRepo
-            value: tasks/slack-notification.yaml
+            value: tasks/koncur-cleanup-notify.yaml

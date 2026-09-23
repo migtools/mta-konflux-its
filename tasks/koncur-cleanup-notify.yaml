@@ -1,0 +1,381 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: koncur-cleanup-notify
+  labels:
+    app.kubernetes.io/version: "0.1"
+  annotations:
+    tekton.dev/pipelines.minVersion: "0.12.1"
+    tekton.dev/categories: Test
+    tekton.dev/tags: koncur,cleanup,notification,finally
+    tekton.dev/displayName: "Run Koncur Tests, Cleanup, and Notify"
+spec:
+  description: >-
+    Combined finally task that runs koncur hub tests, releases the cluster,
+    and sends Slack notification with all test results. Runs sequentially
+    to avoid cluster release before tests complete.
+
+  params:
+    # Koncur test params
+    - name: uiRoute
+      type: string
+      description: MTA UI route (hostname only, without https://)
+    - name: koncurBranch
+      type: string
+      default: "main"
+      description: Branch of konveyor/koncur to build and test from
+    - name: koncurRepository
+      type: string
+      default: "https://github.com/konveyor/koncur.git"
+      description: koncur repository URL
+    - name: runKoncur
+      type: string
+      default: "run"
+      description: Set to "skip" to skip koncur tests
+
+    # Cluster release params
+    - name: clusterId
+      type: string
+      description: UUID of the cluster to release
+    - name: ocpctlUrl
+      type: string
+      default: "https://ocpctl.mg.dog8code.com/api/v1"
+      description: OCPCTL API base URL
+    - name: ocpctlSecretName
+      type: string
+      default: "ocpctl-ci-key"
+      description: Name of the Kubernetes Secret containing the OCPCTL API key
+
+    # Slack notification params
+    - name: testStatus
+      type: string
+      description: UI E2E test execution status (Succeeded/Failed)
+    - name: dastStatus
+      type: string
+      default: "None"
+      description: DAST scan execution status (Succeeded/Failed/None)
+    - name: operatorNVR
+      type: string
+      default: "unknown"
+      description: Operator NVR (Name-Version-Release)
+    - name: snapshotJson
+      type: string
+      description: Konflux snapshot JSON
+    - name: pipelineRunName
+      type: string
+      description: Name of the pipeline run
+    - name: testBranch
+      type: string
+      default: "main"
+      description: Branch used for UI E2E tests
+    - name: slackWebhookSecretName
+      type: string
+      default: "slack-webhook"
+      description: Name of the Kubernetes Secret containing Slack webhook URL
+    - name: slackWebhookSecretKey
+      type: string
+      default: "url"
+      description: Key in the secret containing the webhook URL
+    - name: sendSlack
+      type: string
+      default: "run"
+      description: Set to "skip" to disable Slack notifications
+
+  results:
+    - name: koncurStatus
+      description: Koncur test execution status (PASSED/FAILED/SKIPPED)
+    - name: releaseStatus
+      description: Cluster release status (SUCCESS/FAILED)
+    - name: slackStatus
+      description: Slack notification status (SENT/FAILED/SKIPPED)
+
+  stepTemplate:
+    computeResources:
+      requests:
+        memory: 4Gi
+        cpu: "2"
+      limits:
+        memory: 8Gi
+        cpu: "4"
+
+  steps:
+    # Step 1: Run koncur hub tests
+    - name: run-koncur-tests
+      image: golang:1.25
+      env:
+        - name: SKIP_MAVEN
+          value: "false"
+      script: |
+        #!/bin/bash
+        set -euo pipefail
+
+        RUN_KONCUR="$(params.runKoncur)"
+
+        if [ "$RUN_KONCUR" != "run" ]; then
+          echo "Koncur tests skipped (runKoncur != run)"
+          echo "SKIPPED" > $(results.koncurStatus.path)
+          exit 0
+        fi
+
+        # Set failure trap
+        trap 'echo "FAILED" > $(results.koncurStatus.path)' ERR
+
+        UI_ROUTE="$(params.uiRoute)"
+        HUB_URL="https://${UI_ROUTE}/hub"
+
+        echo "=========================================="
+        echo "STEP 1: Running Koncur Hub Tests"
+        echo "=========================================="
+        echo "Tackle Hub URL: $HUB_URL"
+
+        echo "Cloning koncur repository (branch: $(params.koncurBranch))..."
+        cd /tmp
+        git clone --depth 1 --branch "$(params.koncurBranch)" $(params.koncurRepository)
+        cd koncur
+        KONCUR_REVISION="$(git rev-parse HEAD)"
+        echo "Using koncur revision: ${KONCUR_REVISION}"
+
+        echo "Building koncur..."
+        go build -o /usr/local/bin/koncur ./cmd/koncur/main.go
+
+        echo "Writing maven settings..."
+        mkdir -p .koncur/config
+        cat > .koncur/config/settings.xml <<EOF
+        <settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 https://maven.apache.org/xsd/settings-1.0.0.xsd">
+          <profiles>
+            <profile>
+              <id>konveyor-demo</id>
+              <repositories>
+                <repository>
+                  <id>konveyor-demo</id>
+                  <name>Konveyor demo test artifacts</name>
+                  <url>https://raw.githubusercontent.com/konveyor/koncur/${KONCUR_REVISION}/local-maven-resources</url>
+                  <releases><enabled>true</enabled></releases>
+                  <snapshots><enabled>true</enabled></snapshots>
+                </repository>
+              </repositories>
+            </profile>
+          </profiles>
+          <activeProfiles>
+            <activeProfile>konveyor-demo</activeProfile>
+          </activeProfiles>
+        </settings>
+        EOF
+
+        echo "Importing hub CA chain into the trust store..."
+        openssl s_client -showcerts -connect "${UI_ROUTE}:443" </dev/null 2>/dev/null \
+          | sed -n '/-BEGIN CERTIFICATE-/,/-END CERTIFICATE-/p' \
+          > /usr/local/share/ca-certificates/hub-chain.crt
+        update-ca-certificates
+
+        echo "Writing tackle-hub target config..."
+        cat > .koncur/config/target-tackle-hub.yaml <<EOF
+        type: tackle-hub
+        tackleHub:
+          url: ${HUB_URL}
+          username: admin
+          password: admin
+          mavenSettings: ${PWD}/.koncur/config/settings.xml
+        EOF
+
+        echo "Running koncur hub tests..."
+        if koncur run tests -t tackle-hub \
+          --target-config .koncur/config/target-tackle-hub.yaml \
+          -o yaml --output-file test-hub.yaml; then
+          echo "✅ Koncur tests PASSED"
+          echo "PASSED" > $(results.koncurStatus.path)
+        else
+          echo "❌ Koncur tests FAILED"
+          echo "FAILED" > $(results.koncurStatus.path)
+          # Don't exit - continue to cleanup and notification
+        fi
+
+    # Step 2: Release cluster
+    - name: release-cluster
+      image: registry.access.redhat.com/ubi9/ubi@sha256:e79f79172a6779775e1733cb4f49cd5ef03a0703c68ec46c717f93b9ac4a5e71
+      env:
+        - name: OCPCTL_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: $(params.ocpctlSecretName)
+              key: api-key
+      script: |
+        #!/bin/bash
+        set -euo pipefail
+
+        echo ""
+        echo "=========================================="
+        echo "STEP 2: Releasing Cluster"
+        echo "=========================================="
+
+        OCPCTL_URL="$(params.ocpctlUrl)"
+        CLUSTER_ID="$(params.clusterId)"
+
+        echo "Releasing cluster back to pool: $CLUSTER_ID"
+
+        RESPONSE=$(curl -s -w "\n%{http_code}" \
+          -X POST "$OCPCTL_URL/pools/clusters/$CLUSTER_ID/release" \
+          -H "Authorization: Bearer $OCPCTL_API_KEY" \
+          -H "Content-Type: application/json")
+
+        HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+        BODY=$(echo "$RESPONSE" | sed '$d')
+
+        if [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "202" ]; then
+          echo "⚠️ Cluster release request failed (HTTP $HTTP_CODE)"
+          echo "$BODY"
+          echo "FAILED" > $(results.releaseStatus.path)
+          # Don't exit - continue to Slack notification
+        else
+          echo "✅ Cluster released successfully to pool"
+          echo "SUCCESS" > $(results.releaseStatus.path)
+        fi
+
+    # Step 3: Send Slack notification
+    - name: send-slack-notification
+      image: registry.redhat.io/openshift4/ose-cli:latest
+      env:
+        - name: SLACK_WEBHOOK_URL
+          valueFrom:
+            secretKeyRef:
+              name: $(params.slackWebhookSecretName)
+              key: $(params.slackWebhookSecretKey)
+      script: |
+        #!/bin/bash
+        set -euo pipefail
+
+        SEND_SLACK="$(params.sendSlack)"
+
+        if [ "$SEND_SLACK" != "run" ]; then
+          echo "Slack notification skipped (sendSlack != run)"
+          echo "SKIPPED" > $(results.slackStatus.path)
+          exit 0
+        fi
+
+        echo ""
+        echo "=========================================="
+        echo "STEP 3: Sending Slack Notification"
+        echo "=========================================="
+
+        UI_TEST_STATUS="$(params.testStatus)"
+        DAST_STATUS="$(params.dastStatus)"
+        KONCUR_STATUS=$(cat $(results.koncurStatus.path))
+        OPERATOR_NVR="$(params.operatorNVR)"
+        SNAPSHOT_JSON='$(params.snapshotJson)'
+        PIPELINE_RUN="$(params.pipelineRunName)"
+        TEST_BRANCH="$(params.testBranch)"
+        KONCUR_BRANCH="$(params.koncurBranch)"
+
+        # Extract snapshot name from pipelineRun label
+        SNAPSHOT_NAME=$(oc get pipelinerun "$PIPELINE_RUN" -o jsonpath='{.metadata.labels.appstudio\.openshift\.io/snapshot}' 2>/dev/null || true)
+
+        # Fallback: use application name
+        if [ -z "$SNAPSHOT_NAME" ]; then
+          SNAPSHOT_NAME=$(echo "$SNAPSHOT_JSON" | grep -o '"application":"[^"]*"' | cut -d'"' -f4)
+        fi
+
+        # Last resort
+        if [ -z "$SNAPSHOT_NAME" ]; then
+          SNAPSHOT_NAME="unknown"
+        fi
+
+        # Extract application name from snapshot JSON for dynamic Konflux link
+        APPLICATION_NAME=$(echo "$SNAPSHOT_JSON" | grep -o '"application":"[^"]*"' | cut -d'"' -f4)
+        if [ -z "$APPLICATION_NAME" ]; then
+          APPLICATION_NAME="unknown"
+        fi
+
+        # Extract OCP version from snapshot target_branch annotation
+        OCP_VERSION="N/A"
+        if [ "$SNAPSHOT_NAME" != "unknown" ]; then
+          TARGET_BRANCH=$(oc get snapshot "$SNAPSHOT_NAME" \
+            -o jsonpath='{.metadata.annotations.build\.appstudio\.redhat\.com/target_branch}' 2>/dev/null || echo "")
+
+          if [ -n "$TARGET_BRANCH" ]; then
+            if echo "$TARGET_BRANCH" | grep -qE 'ocp-[0-9]+\.[0-9]+'; then
+              OCP_VERSION=$(echo "$TARGET_BRANCH" | grep -oE 'ocp-[0-9]+\.[0-9]+' | sed 's/ocp-//')
+            fi
+          fi
+        fi
+
+        echo "Snapshot: $SNAPSHOT_NAME"
+        echo "Operator NVR: $OPERATOR_NVR"
+        echo "OCP Version: $OCP_VERSION"
+        echo "UI Tests: $UI_TEST_STATUS"
+        echo "DAST Scan: $DAST_STATUS"
+        echo "Koncur Tests: $KONCUR_STATUS"
+
+        # UI test status - emoji for pass/fail, text for skipped
+        if [ "$UI_TEST_STATUS" = "Succeeded" ]; then
+          UI_STATUS_TEXT=":white_check_mark:"
+        elif [ "$UI_TEST_STATUS" = "Failed" ]; then
+          UI_STATUS_TEXT=":x:"
+        else
+          UI_STATUS_TEXT="SKIPPED"
+        fi
+
+        # DAST status
+        if [ "$DAST_STATUS" = "Succeeded" ]; then
+          DAST_STATUS_TEXT=":white_check_mark:"
+        elif [ "$DAST_STATUS" = "Failed" ]; then
+          DAST_STATUS_TEXT=":x:"
+        else
+          DAST_STATUS_TEXT="SKIPPED"
+        fi
+
+        # Koncur test status
+        if [ "$KONCUR_STATUS" = "PASSED" ]; then
+          KONCUR_STATUS_TEXT=":white_check_mark:"
+        elif [ "$KONCUR_STATUS" = "FAILED" ]; then
+          KONCUR_STATUS_TEXT=":x:"
+        else
+          KONCUR_STATUS_TEXT="SKIPPED"
+        fi
+
+        # Construct Konflux UI link
+        PIPELINE_LINK="https://konflux-ui.apps.kflux-ocp-p01.7ayg.p1.openshiftapps.com/ns/art-mta-tenant/applications/$APPLICATION_NAME/pipelineruns/$PIPELINE_RUN"
+
+        # Construct message for Slack Workflow
+        MESSAGE=$(cat <<EOF
+        {
+          "snapshot": "$SNAPSHOT_NAME",
+          "nvr": "$OPERATOR_NVR",
+          "ocp_version": "$OCP_VERSION",
+          "ui_branch": "$TEST_BRANCH",
+          "koncur_branch": "$KONCUR_BRANCH",
+          "ui_tests": "$UI_STATUS_TEXT",
+          "dast_scan": "$DAST_STATUS_TEXT",
+          "koncur_tests": "$KONCUR_STATUS_TEXT",
+          "pipeline": "$PIPELINE_LINK"
+        }
+        EOF
+        )
+
+        # Install curl if not already present
+        if ! command -v curl &> /dev/null; then
+          echo "Installing curl..."
+          if ! microdnf install -y curl; then
+            echo "❌ Failed to install curl"
+            echo "FAILED" > $(results.slackStatus.path)
+            exit 0
+          fi
+        fi
+
+        # Send to Slack
+        echo "Sending notification to Slack..."
+        HTTP_CODE=$(curl -X POST -H 'Content-type: application/json' \
+          --data "$MESSAGE" \
+          -w "%{http_code}" \
+          -o /tmp/slack-response.txt \
+          "$SLACK_WEBHOOK_URL")
+
+        if [ "$HTTP_CODE" = "200" ]; then
+          echo "✅ Slack notification sent successfully"
+          echo "SENT" > $(results.slackStatus.path)
+        else
+          echo "⚠️ Failed to send Slack notification (HTTP $HTTP_CODE)"
+          cat /tmp/slack-response.txt
+          echo "FAILED" > $(results.slackStatus.path)
+        fi

@@ -8,8 +8,9 @@ the git resolver. Reference one with `pathInRepo: pipelines/<file>.yaml` (see th
 
 Deploys the MTA operator from an FBC (File-Based Catalog) image onto a leased OCPCTL pool
 cluster and runs UI Cypress tests, DAST scan, and koncur hub tests.
-UI and DAST run in parallel after deployment. Koncur tests run in the `finally` section,
-ensuring they execute even if UI or DAST tests fail.
+UI and DAST run in parallel after deployment. A combined finally task sequentially runs
+koncur tests, releases the cluster, and sends Slack notification, ensuring all three execute
+even if UI or DAST tests fail.
 
 **Benefits:**
 - **Single cluster lease**: Both test suites run on the same deployment
@@ -24,10 +25,14 @@ parse-metadata → filter-ocp-version → extract-operator-nvr → verify-image-
   → lease-cluster → cleanup-existing-mta → deploy-operator
   → ┌─ run-dast-scan
     └─ run-e2e-tests (UI Cypress)
-finally: run-koncur-hub-tests, release-cluster, slack-notification
+finally: koncur-cleanup-notify
+  (runs koncur tests → releases cluster → sends Slack notification sequentially)
 ```
 
-DAST and UI tests run **in parallel** after deployment for faster execution. Koncur tests run in the `finally` section, ensuring they execute even if UI or DAST tests fail. This prevents UI/koncur test interference (koncur waits until UI completes) while guaranteeing complete test coverage and Slack notification regardless of prior test results.
+DAST and UI tests run **in parallel** after deployment for faster execution. The combined finally task
+ensures koncur tests, cluster cleanup, and Slack notification all execute sequentially even if UI or DAST
+tests fail. This prevents UI/koncur test interference, ensures the cluster stays up during tests, and
+guarantees Slack receives all test results.
 
 ### Parameters
 

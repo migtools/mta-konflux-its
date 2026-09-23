@@ -26,6 +26,10 @@ spec:
       description: Branch of konveyor/koncur to use for koncur hub tests
       type: string
       default: "main"
+    - name: uiTestTags
+      description: Test tags to run (temporary - set to @ci for quick validation)
+      type: string
+      default: "@ci"
 
   results:
     - name: IMAGE_VERIFICATION
@@ -207,6 +211,8 @@ spec:
           value: $(tasks.deploy-operator.results.uiRoute)
         - name: gitBranch
           value: $(params.uiTestBranch)
+        - name: testTags
+          value: $(params.uiTestTags)
       taskRef:
         resolver: git
         params:

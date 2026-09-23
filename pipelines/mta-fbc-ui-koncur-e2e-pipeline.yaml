@@ -84,7 +84,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: koncur-in-finally
           - name: pathInRepo
             value: tasks/filter-ocp-version.yaml
 
@@ -102,7 +102,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: koncur-in-finally
           - name: pathInRepo
             value: tasks/extract-operator-nvr.yaml
 
@@ -118,7 +118,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: koncur-in-finally
           - name: pathInRepo
             value: tasks/verify-image-pullable.yaml
 
@@ -138,7 +138,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: koncur-in-finally
           - name: pathInRepo
             value: tasks/ocpctl-pool-lease.yaml
 
@@ -154,7 +154,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: koncur-in-finally
           - name: pathInRepo
             value: tasks/cleanup-mta.yaml
 
@@ -174,7 +174,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: koncur-in-finally
           - name: pathInRepo
             value: tasks/deploy-mta-operator.yaml
 
@@ -196,7 +196,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: koncur-in-finally
           - name: pathInRepo
             value: tasks/run-dast-scan.yaml
 
@@ -220,7 +220,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: koncur-in-finally
           - name: pathInRepo
             value: tasks/run-ui-e2e-tests.yaml
 
@@ -265,6 +265,6 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: koncur-in-finally
           - name: pathInRepo
             value: tasks/koncur-cleanup-notify.yaml

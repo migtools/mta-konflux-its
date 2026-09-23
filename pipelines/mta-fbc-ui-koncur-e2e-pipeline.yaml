@@ -48,7 +48,7 @@ spec:
       value: $(tasks.run-dast-scan.results.scanStatus)
     - name: KONCUR_TEST_OUTPUT
       description: Koncur hub test execution result
-      value: $(tasks.run-koncur-hub-tests.results.testStatus)
+      value: $(finally.run-koncur-hub-tests.results.testStatus)
 
   tasks:
     - name: parse-metadata
@@ -264,7 +264,7 @@ spec:
         - input: "run"
           operator: in
           values: ["run"] # Set to "skip" to disable Slack notifications during testing
-        - input: "$(tasks.run-koncur-hub-tests.status)"
+        - input: "$(finally.run-koncur-hub-tests.status)"
           operator: in
           values: ["Succeeded", "Failed"] # Only send if koncur tests ran
       params:
@@ -273,7 +273,7 @@ spec:
         - name: dastStatus
           value: "$(tasks.run-dast-scan.status)"
         - name: koncurStatus
-          value: "$(tasks.run-koncur-hub-tests.status)"
+          value: "$(finally.run-koncur-hub-tests.status)"
         - name: operatorNVR
           value: "$(tasks.extract-operator-nvr.results.operatorNVR)"
         - name: snapshotJson

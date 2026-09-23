@@ -8,6 +8,7 @@ the git resolver. Reference one with `pathInRepo: pipelines/<file>.yaml` (see th
 
 Deploys the MTA operator from an FBC (File-Based Catalog) image onto a leased OCPCTL pool
 cluster and runs both UI Cypress tests and koncur hub tests sequentially on the same cluster.
+Koncur tests run even if UI tests fail (failure-tolerant execution).
 
 **Benefits:**
 - **Single cluster lease**: Both test suites run on the same deployment
@@ -20,13 +21,11 @@ cluster and runs both UI Cypress tests and koncur hub tests sequentially on the 
 ```
 parse-metadata → filter-ocp-version → extract-operator-nvr → verify-image-pullable
   → lease-cluster → cleanup-existing-mta → deploy-operator
-  → ┌─ run-dast-scan
-    ├─ run-e2e-tests (UI Cypress)
-    └─ run-koncur-hub-tests
+  → run-dast-scan → run-e2e-tests (UI Cypress) → run-koncur-hub-tests
 finally: release-cluster, slack-notification
 ```
 
-Tests run **in parallel** after deployment: DAST scan, UI Cypress tests, and koncur hub tests all run simultaneously for faster execution.
+Tests run **sequentially** after deployment. Koncur tests run even if UI tests fail (failure-tolerant execution) to ensure complete test coverage and Slack notification regardless of UI test status.
 
 ### Parameters
 

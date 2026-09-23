@@ -74,7 +74,10 @@ spec:
         echo "Cloning tackle2-ui repository..."
         cd /tmp
         git clone --depth 1 --branch $(params.gitBranch) $(params.gitRepository)
-        cd mta-tackle2-ui
+
+        # Extract directory name from repository URL (e.g., mta-tackle2-ui.git -> mta-tackle2-ui)
+        REPO_DIR=$(basename $(params.gitRepository) .git)
+        cd "$REPO_DIR"
 
         echo "Installing dependencies..."
         npm clean-install --ignore-scripts --no-audit

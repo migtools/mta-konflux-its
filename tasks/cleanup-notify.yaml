@@ -126,7 +126,7 @@ spec:
 
     # Step 2: Send Slack notification
     - name: send-slack-notification
-      image: registry.access.redhat.com/ubi9/ubi:9.5
+      image: registry.redhat.io/openshift4/ose-cli:latest
       env:
         - name: SLACK_WEBHOOK_URL
           valueFrom:

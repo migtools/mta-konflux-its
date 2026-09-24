@@ -31,7 +31,7 @@ spec:
 
   steps:
     - name: check-ocp-version
-      image: registry.redhat.io/openshift4/ose-cli:latest
+      image: registry.redhat.io/openshift4/ose-cli:v4.16
       script: |
         #!/bin/bash
         set -euo pipefail

@@ -28,9 +28,9 @@ spec:
       type: string
       default: "main"
     - name: uiTestTags
-      description: Test tags to run (temporary - set to @ci for quick validation)
+      description: Test tags to run
       type: string
-      default: "@ci"
+      default: "@ci,@tier0,@tier2_A,@tier3_A,@tier3_B,@tier3_C,@tier3_D,@tier3_E,@tier3_F"
 
   results:
     - name: IMAGE_VERIFICATION

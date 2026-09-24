@@ -61,9 +61,8 @@ Snapshots targeting unsupported OCP versions fail fast at the `filter-ocp-versio
 
 Pipelines support testing different MTA versions via parameters:
 
-- **koncurBranch**: Branch of konveyor/koncur (default: `main`)
-- **uiTestBranch**: Branch of tackle2-ui (default: `main`)
-- **uiTestTags**: Test tags to run (default: all tiers)
+- **Koncur tests**: Use `koncurBranch` parameter (default: `main`, override for older versions)
+- **UI E2E tests**: Use `uiTestBranch` parameter (default: `main`, override for older versions)
 
 Example ITS for testing with specific branches:
 ```yaml

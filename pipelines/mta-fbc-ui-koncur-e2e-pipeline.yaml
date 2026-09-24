@@ -245,19 +245,30 @@ spec:
             value: tasks/run-ui-e2e-tests.yaml
 
   finally:
-    - name: cleanup-and-notify
+    - name: release-cluster
       when:
-        - input: "$(tasks.deploy-operator.status)"
-          operator: in
-          values: ["Succeeded"] # Only run if deployment succeeded
         - input: "$(tasks.lease-cluster.status)"
           operator: in
           values: ["Succeeded"] # Only run if cluster was leased
       params:
-        # Cluster release params
         - name: clusterId
           value: $(tasks.lease-cluster.results.clusterId)
-        # Slack notification params
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/ocpctl-pool-release.yaml
+
+    - name: send-slack-notification
+      when:
+        - input: "$(tasks.deploy-operator.status)"
+          operator: in
+          values: ["Succeeded"] # Only run if deployment succeeded
+      params:
         - name: testStatus
           value: "$(tasks.run-e2e-tests.status)"
         - name: dastStatus
@@ -272,8 +283,8 @@ spec:
           value: "$(context.pipelineRun.name)"
         - name: testBranch
           value: "$(params.uiTestBranch)"
-        - name: sendSlack
-          value: "run" # Set to "skip" to disable Slack notifications
+        - name: koncurBranch
+          value: "$(params.koncurBranch)"
       taskRef:
         resolver: git
         params:
@@ -282,4 +293,4 @@ spec:
           - name: revision
             value: main
           - name: pathInRepo
-            value: tasks/cleanup-notify.yaml
+            value: tasks/slack-notification.yaml

@@ -107,26 +107,11 @@ spec:
           exit 0
         fi
 
-        echo "Detected OCP version from branch: $OCP_VERSION"
-
-        # Map ART internal versions to actual OCP versions
-        # ART uses ocp-5.0 for what is actually OCP 4.22
-        case "$OCP_VERSION" in
-          5.0)
-            ACTUAL_OCP_VERSION="4.22"
-            echo "Mapped ART version ocp-5.0 → OCP 4.22"
-            ;;
-          *)
-            ACTUAL_OCP_VERSION="$OCP_VERSION"
-            ;;
-        esac
-
-        echo "Actual OCP version: $ACTUAL_OCP_VERSION"
-        echo -n "$ACTUAL_OCP_VERSION" > $(results.ocpVersion.path)
+        echo "Detected OCP version: $OCP_VERSION"
+        echo -n "$OCP_VERSION" > $(results.ocpVersion.path)
         echo ""
 
         # Check if version is in allowed list
-        OCP_VERSION="$ACTUAL_OCP_VERSION"
         if echo ",$ALLOWED_VERSIONS," | grep -q ",$OCP_VERSION,"; then
           echo "✅ OCP $OCP_VERSION is in allowed list"
           echo "   Pipeline will CONTINUE"

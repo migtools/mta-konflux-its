@@ -50,10 +50,7 @@ readability, not a resolver requirement. Pipelines in `pipelines/` resolve their
 
 ## OCP Version Filtering
 
-Snapshots are filtered by target OCP version to conserve cluster resources. The pipeline only runs on allowed OCP versions (default: 4.20, 4.21, 4.22).
-
-**ART Version Mapping**: Red Hat ART (Automated Release Tooling) uses internal versioning:
-- `ocp-5.0` → OCP 4.22
+Snapshots are filtered by target OCP version to conserve cluster resources. The pipeline only runs on allowed OCP versions (default: 4.20, 4.21, 4.22, 5.0).
 
 Snapshots targeting unsupported OCP versions fail fast at the `filter-ocp-version` step.
 

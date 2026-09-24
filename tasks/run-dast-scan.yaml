@@ -109,6 +109,13 @@ spec:
         #!/bin/bash
         set -euo pipefail
 
+        # Install oc CLI
+        if ! command -v oc &> /dev/null; then
+          echo "Installing oc CLI..."
+          curl -sL https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable/openshift-client-linux.tar.gz | tar -xzf - -C /usr/local/bin oc
+          chmod +x /usr/local/bin/oc
+        fi
+
         export KUBECONFIG=/workspace/kubeconfig
 
         echo "Checking MTA authentication status..."
@@ -226,6 +233,13 @@ spec:
       script: |
         #!/bin/bash
         set -euo pipefail
+
+        # Install oc CLI
+        if ! command -v oc &> /dev/null; then
+          echo "Installing oc CLI..."
+          curl -sL https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable/openshift-client-linux.tar.gz | tar -xzf - -C /usr/local/bin oc
+          chmod +x /usr/local/bin/oc
+        fi
 
         export KUBECONFIG=/workspace/kubeconfig
 

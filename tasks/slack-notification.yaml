@@ -55,7 +55,7 @@ spec:
 
   steps:
     - name: send-notification
-      image: registry.redhat.io/openshift4/ose-cli:latest
+      image: registry.access.redhat.com/ubi9/ubi:9.5
       env:
         - name: SLACK_WEBHOOK_URL
           valueFrom:

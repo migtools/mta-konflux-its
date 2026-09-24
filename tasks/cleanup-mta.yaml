@@ -33,7 +33,7 @@ spec:
 
   steps:
     - name: cleanup
-      image: registry.redhat.io/openshift4/ose-cli:latest
+      image: registry.access.redhat.com/ubi9/ubi:9.5
       env:
         - name: OCPCTL_API_KEY
           valueFrom:
@@ -43,6 +43,13 @@ spec:
       script: |
         #!/bin/bash
         set -euo pipefail
+
+        # Install oc CLI and curl
+        if ! command -v oc &> /dev/null; then
+          echo "Installing oc CLI..."
+          curl -sL https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable/openshift-client-linux.tar.gz | tar -xzf - -C /usr/local/bin oc
+          chmod +x /usr/local/bin/oc
+        fi
 
         OCPCTL_URL="$(params.ocpctlUrl)"
         CLUSTER_ID="$(params.clusterId)"

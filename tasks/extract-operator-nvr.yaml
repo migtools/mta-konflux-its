@@ -40,13 +40,20 @@ spec:
 
   steps:
     - name: extract-nvr
-      image: registry.redhat.io/openshift4/ose-cli:latest
+      image: registry.access.redhat.com/ubi9/ubi:9.5
       volumeMounts:
         - name: stage-pull-secret
           mountPath: /stage-pull-secret
       script: |
         #!/bin/bash
         set -euo pipefail
+
+        # Install oc CLI
+        if ! command -v oc &> /dev/null; then
+          echo "Installing oc CLI..."
+          curl -sL https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable/openshift-client-linux.tar.gz | tar -xzf - -C /usr/local/bin oc
+          chmod +x /usr/local/bin/oc
+        fi
 
         SNAPSHOT_JSON='$(params.snapshotJson)'
 

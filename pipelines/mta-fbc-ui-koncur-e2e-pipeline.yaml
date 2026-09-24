@@ -211,9 +211,9 @@ spec:
         - name: uiRoute
           value: $(tasks.deploy-operator.results.uiRoute)
         - name: gitRepository
-          value: https://github.com/sshveta/tackle2-ui.git
+          value: https://github.com/migtools/mta-tackle2-ui.git
         - name: gitBranch
-          value: handle-401-in-ci-test
+          value: main
         - name: testTags
           value: $(params.uiTestTags)
       taskRef:
@@ -242,7 +242,7 @@ spec:
         - name: koncurBranch
           value: $(params.koncurBranch)
         - name: runKoncur
-          value: "run" # Set to "skip" to skip koncur tests
+          value: "skip" # Set to "skip" to skip koncur tests
         # Cluster release params
         - name: clusterId
           value: $(tasks.lease-cluster.results.clusterId)

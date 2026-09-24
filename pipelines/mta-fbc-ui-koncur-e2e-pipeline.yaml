@@ -53,7 +53,7 @@ spec:
       value: $(tasks.run-dast-scan.results.scanStatus)
     - name: KONCUR_TEST_OUTPUT
       description: Koncur hub test execution result
-      value: $(finally.koncur-cleanup-notify.results.koncurStatus)
+      value: $(tasks.run-koncur-tests.results.testStatus)
 
   tasks:
     - name: parse-metadata
@@ -200,9 +200,31 @@ spec:
           - name: pathInRepo
             value: tasks/run-dast-scan.yaml
 
+    - name: run-koncur-tests
+      runAfter:
+        - run-dast-scan
+      when:
+        - input: "run"
+          operator: in
+          values: ["run"] # Set to "skip" to skip koncur tests
+      params:
+        - name: uiRoute
+          value: $(tasks.deploy-operator.results.uiRoute)
+        - name: koncurBranch
+          value: $(params.koncurBranch)
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: koncur-in-finally
+          - name: pathInRepo
+            value: tasks/run-koncur-hub-tests.yaml
+
     - name: run-e2e-tests
       runAfter:
-        - deploy-operator
+        - run-koncur-tests
       when:
         - input: "run"
           operator: in
@@ -227,7 +249,7 @@ spec:
             value: tasks/run-ui-e2e-tests.yaml
 
   finally:
-    - name: koncur-cleanup-notify
+    - name: cleanup-and-notify
       when:
         - input: "$(tasks.deploy-operator.status)"
           operator: in
@@ -236,13 +258,13 @@ spec:
           operator: in
           values: ["Succeeded"] # Only run if cluster was leased
       params:
-        # Koncur test params
+        # Koncur test params (skip koncur execution, just report status)
         - name: uiRoute
           value: $(tasks.deploy-operator.results.uiRoute)
         - name: koncurBranch
           value: $(params.koncurBranch)
         - name: runKoncur
-          value: "run" # Set to "skip" to skip koncur tests
+          value: "skip" # Koncur runs as regular task now
         # Cluster release params
         - name: clusterId
           value: $(tasks.lease-cluster.results.clusterId)
@@ -251,6 +273,8 @@ spec:
           value: "$(tasks.run-e2e-tests.status)"
         - name: dastStatus
           value: "$(tasks.run-dast-scan.status)"
+        - name: koncurStatus
+          value: "$(tasks.run-koncur-tests.status)"
         - name: operatorNVR
           value: "$(tasks.extract-operator-nvr.results.operatorNVR)"
         - name: snapshotJson

@@ -49,11 +49,15 @@ spec:
     # Slack notification params
     - name: testStatus
       type: string
-      description: UI E2E test execution status (Succeeded/Failed)
+      description: UI E2E test execution status (Succeeded/Failed/Skipped)
     - name: dastStatus
       type: string
       default: "None"
       description: DAST scan execution status (Succeeded/Failed/None)
+    - name: koncurStatus
+      type: string
+      default: "None"
+      description: Koncur test execution status (Succeeded/Failed/Skipped) - passed from regular task when runKoncur=skip
     - name: operatorNVR
       type: string
       default: "unknown"
@@ -112,8 +116,10 @@ spec:
         RUN_KONCUR="$(params.runKoncur)"
 
         if [ "$RUN_KONCUR" != "run" ]; then
-          echo "Koncur tests skipped (runKoncur != run)"
-          echo "SKIPPED" > $(results.koncurStatus.path)
+          # Koncur ran as regular task, use provided status
+          KONCUR_STATUS_INPUT="$(params.koncurStatus)"
+          echo "Koncur tests ran as regular task with status: $KONCUR_STATUS_INPUT"
+          echo "$KONCUR_STATUS_INPUT" > $(results.koncurStatus.path)
           exit 0
         fi
 

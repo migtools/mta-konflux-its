@@ -75,7 +75,7 @@ spec:
         - name: pipelineRunName
           value: $(context.pipelineRun.name)
         - name: allowedOcpVersions
-          value: "4.20,4.21,4.22"
+          value: "4.20,4.21,4.22,5.0"
       taskRef:
         resolver: git
         params:
@@ -202,7 +202,7 @@ spec:
       runAfter:
         - run-dast-scan
       when:
-        - input: "run"
+        - input: "skip"
           operator: in
           values: ["run"] # Set to "skip" to skip koncur tests
       params:
@@ -224,7 +224,7 @@ spec:
       runAfter:
         - run-koncur-tests
       when:
-        - input: "run"
+        - input: "skip"
           operator: in
           values: ["run"] # Set to "skip" to skip UI tests
       params:

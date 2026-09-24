@@ -4,10 +4,12 @@ metadata:
   name: mta-fbc-ui-koncur-e2e-pipeline
 spec:
   description: |
-    Deploy MTA operator from FBC catalog to a leased pool cluster and run UI and koncur E2E tests.
-    Runs UI Cypress tests and DAST scan in parallel after deployment for faster execution.
-    Finally task runs koncur tests, releases cluster, and sends Slack notification sequentially,
-    ensuring they execute even if UI or DAST fail.
+    Deploy MTA operator from FBC catalog to a leased pool cluster and run E2E tests sequentially.
+    Test execution order: DAST scan → Koncur hub tests → UI Cypress tests.
+    Sequential execution prevents auth conflicts (DAST disables auth for scanning).
+    If any test fails, subsequent tests are skipped (not failed).
+    Finally task releases cluster and sends Slack notification, ensuring they execute
+    even if tests fail.
     Uses OCPCTL cluster pools for instant access to pre-provisioned clusters.
     Faster than ephemeral clusters (no 15-30 min provision wait).
 

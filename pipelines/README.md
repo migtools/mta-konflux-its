@@ -7,15 +7,16 @@ the git resolver. Reference one with `pathInRepo: pipelines/<file>.yaml` (see th
 ## `mta-fbc-ui-koncur-e2e-pipeline.yaml`
 
 Deploys the MTA operator from an FBC (File-Based Catalog) image onto a leased OCPCTL pool
-cluster and runs UI Cypress tests, DAST scan, and koncur hub tests.
-UI and DAST run in parallel after deployment. A combined finally task sequentially runs
-koncur tests, releases the cluster, and sends Slack notification, ensuring all three execute
-even if UI or DAST tests fail.
+cluster and runs DAST scan, koncur hub tests, and UI Cypress tests **sequentially**.
+
+**Sequential execution prevents auth conflicts**: DAST disables authentication for scanning,
+which would break UI tests if they ran in parallel. Tests run in order: DAST → Koncur → UI.
 
 **Benefits:**
-- **Single cluster lease**: Both test suites run on the same deployment
-- **Reuse operator deployment**: No duplicate setup overhead
-- **Combined reporting**: Slack notification includes all test results (UI + DAST + koncur)
+- **Single cluster lease**: All test suites run on the same deployment
+- **Reuse operator deployment**: No duplicate setup overhead  
+- **Skip vs Fail**: If any test fails, subsequent tests are **skipped** (not failed)
+- **Combined reporting**: Slack notification includes all test results (DAST + Koncur + UI)
 - **Resource efficiency**: Lower cluster usage compared to separate pipelines
 
 ### Flow
@@ -23,16 +24,14 @@ even if UI or DAST tests fail.
 ```
 parse-metadata → filter-ocp-version → extract-operator-nvr → verify-image-pullable
   → lease-cluster → cleanup-existing-mta → deploy-operator
-  → ┌─ run-dast-scan
-    └─ run-e2e-tests (UI Cypress)
-finally: koncur-cleanup-notify
-  (runs koncur tests → releases cluster → sends Slack notification sequentially)
+  → run-dast-scan → run-koncur-tests → run-e2e-tests (UI Cypress)
+finally: cleanup-notify
+  (releases cluster → sends Slack notification)
 ```
 
-DAST and UI tests run **in parallel** after deployment for faster execution. The combined finally task
-ensures koncur tests, cluster cleanup, and Slack notification all execute sequentially even if UI or DAST
-tests fail. This prevents UI/koncur test interference, ensures the cluster stays up during tests, and
-guarantees Slack receives all test results.
+Tests run **sequentially** to avoid auth conflicts. If DAST fails, Koncur and UI are **skipped**.
+If Koncur fails, UI is **skipped**. The finally task always runs (if deployment succeeded) to
+release the cluster and send Slack notification with all test results.
 
 ### Parameters
 

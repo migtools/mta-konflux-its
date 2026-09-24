@@ -27,10 +27,6 @@ spec:
       description: Branch of konveyor/koncur to use for koncur hub tests
       type: string
       default: "main"
-    - name: uiTestTags
-      description: Test tags to run
-      type: string
-      default: "@ci,@tier0,@tier2_A,@tier3_A,@tier3_B,@tier3_C,@tier3_D,@tier3_E,@tier3_F"
 
   results:
     - name: IMAGE_VERIFICATION
@@ -236,8 +232,6 @@ spec:
           value: https://github.com/migtools/mta-tackle2-ui.git
         - name: gitBranch
           value: main
-        - name: testTags
-          value: $(params.uiTestTags)
       taskRef:
         resolver: git
         params:
@@ -258,13 +252,6 @@ spec:
           operator: in
           values: ["Succeeded"] # Only run if cluster was leased
       params:
-        # Koncur test params (skip koncur execution, just report status)
-        - name: uiRoute
-          value: $(tasks.deploy-operator.results.uiRoute)
-        - name: koncurBranch
-          value: $(params.koncurBranch)
-        - name: runKoncur
-          value: "skip" # Koncur runs as regular task now
         # Cluster release params
         - name: clusterId
           value: $(tasks.lease-cluster.results.clusterId)
@@ -293,4 +280,4 @@ spec:
           - name: revision
             value: koncur-in-finally
           - name: pathInRepo
-            value: tasks/koncur-cleanup-notify.yaml
+            value: tasks/cleanup-notify.yaml

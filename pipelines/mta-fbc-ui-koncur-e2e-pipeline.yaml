@@ -242,7 +242,7 @@ spec:
         - name: koncurBranch
           value: $(params.koncurBranch)
         - name: runKoncur
-          value: "skip" # Set to "skip" to skip koncur tests
+          value: "run" # Set to "skip" to skip koncur tests
         # Cluster release params
         - name: clusterId
           value: $(tasks.lease-cluster.results.clusterId)

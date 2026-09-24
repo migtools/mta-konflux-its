@@ -58,6 +58,10 @@ spec:
           value: /tmp/.cache/npm
         - name: NODE_TLS_REJECT_UNAUTHORIZED
           value: "0"
+        - name: LOG_LEVEL
+          value: "VERBOSE"
+        - name: DEBUG
+          value: "cypress:*"
       script: |
         #!/bin/bash
         set -euo pipefail
@@ -116,9 +120,27 @@ spec:
         FILE_COUNT=$(echo "$SPEC_FILES" | tr ',' '\n' | wc -l)
         echo "Running $FILE_COUNT test files"
 
+        echo ""
+        echo "=========================================="
+        echo "DEBUG: Environment Configuration"
+        echo "=========================================="
+        echo "LOG_LEVEL: ${LOG_LEVEL:-not set}"
+        echo "DEBUG: ${DEBUG:-not set}"
+        echo "BASE_URL: $BASE_URL"
+        echo "CYPRESS_INCLUDE_TAGS: $TEST_TAGS"
+        echo "Node version: $(node --version)"
+        echo "NPM version: $(npm --version)"
+        echo "Cypress cache: $CYPRESS_CACHE_FOLDER"
+        echo "Current directory: $(pwd)"
+        echo "Available memory: $(free -h | grep Mem)"
+        echo "CPU info: $(nproc) cores"
+        echo "=========================================="
+        echo ""
+
         # cypress-tags plugin filters individual tests within the matched files
         export CYPRESS_INCLUDE_TAGS="$TEST_TAGS"
 
+        echo "Starting Cypress with verbose logging..."
         if npx dotenvx run -- npx cypress run \
           --spec "$SPEC_FILES" \
           --config-file cypress.config.ts \

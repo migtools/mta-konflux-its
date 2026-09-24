@@ -60,8 +60,6 @@ spec:
           value: "0"
         - name: LOG_LEVEL
           value: "VERBOSE"
-        - name: DEBUG
-          value: "cypress:*"
       script: |
         #!/bin/bash
         set -euo pipefail

@@ -31,7 +31,7 @@ spec:
 
   steps:
     - name: check-ocp-version
-      image: registry.redhat.io/openshift4/ose-cli:latest
+      image: registry.access.redhat.com/ubi9/ubi:9.5
       script: |
         #!/bin/bash
         set -euo pipefail
@@ -44,8 +44,15 @@ spec:
         echo "Allowed versions: $ALLOWED_VERSIONS"
         echo ""
 
-        # Install jq if needed
+        # Install oc and jq
+        if ! command -v oc &> /dev/null; then
+          echo "Installing oc CLI..."
+          curl -sL https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable/openshift-client-linux.tar.gz | tar -xzf - -C /usr/local/bin oc
+          chmod +x /usr/local/bin/oc
+        fi
+
         if ! command -v jq &> /dev/null; then
+          echo "Installing jq..."
           curl -sL https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64 -o /usr/local/bin/jq
           chmod +x /usr/local/bin/jq
         fi

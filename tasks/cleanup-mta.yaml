@@ -33,7 +33,7 @@ spec:
 
   steps:
     - name: cleanup
-      image: registry.redhat.io/openshift4/ose-cli:latest
+      image: registry.access.redhat.com/ubi9/ubi:9.5
       env:
         - name: OCPCTL_API_KEY
           valueFrom:
@@ -43,6 +43,13 @@ spec:
       script: |
         #!/bin/bash
         set -euo pipefail
+
+        # Install oc CLI and curl
+        if ! command -v oc &> /dev/null; then
+          echo "Installing oc CLI..."
+          curl -sL https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable/openshift-client-linux.tar.gz | tar -xzf - -C /usr/local/bin oc
+          chmod +x /usr/local/bin/oc
+        fi
 
         OCPCTL_URL="$(params.ocpctlUrl)"
         CLUSTER_ID="$(params.clusterId)"
@@ -63,8 +70,8 @@ spec:
 
         echo "Checking for existing MTA installation..."
 
-        # Check if konveyor-tackle namespace exists
-        if ! oc get namespace konveyor-tackle &>/dev/null; then
+        # Check if openshift-mta namespace exists
+        if ! oc get namespace openshift-mta &>/dev/null; then
           echo "✅ No existing MTA installation found"
           echo -n "SUCCESS" > $(results.cleanupStatus.path)
           exit 0
@@ -73,14 +80,14 @@ spec:
         echo "Found existing MTA installation, cleaning up..."
 
         # Delete Tackle CR (this triggers operator to clean up workloads)
-        if oc get tackle -n konveyor-tackle &>/dev/null; then
+        if oc get tackle -n openshift-mta &>/dev/null; then
           echo "Deleting Tackle CR..."
-          oc delete tackle --all -n konveyor-tackle --wait=false || true
+          oc delete tackle --all -n openshift-mta --wait=false || true
 
           # Wait for Tackle CR to be removed (with timeout)
           TIMEOUT=300
           ELAPSED=0
-          while oc get tackle -n konveyor-tackle &>/dev/null && [ $ELAPSED -lt $TIMEOUT ]; do
+          while oc get tackle -n openshift-mta &>/dev/null && [ $ELAPSED -lt $TIMEOUT ]; do
             echo "Waiting for Tackle CR deletion... ($ELAPSED/${TIMEOUT}s)"
             sleep 10
             ELAPSED=$((ELAPSED + 10))
@@ -88,15 +95,15 @@ spec:
         fi
 
         # Delete Subscription
-        if oc get subscription -n konveyor-tackle &>/dev/null; then
+        if oc get subscription -n openshift-mta &>/dev/null; then
           echo "Deleting MTA Subscription..."
-          oc delete subscription --all -n konveyor-tackle --wait=false || true
+          oc delete subscription --all -n openshift-mta --wait=false || true
         fi
 
         # Delete CSV
-        if oc get csv -n konveyor-tackle &>/dev/null; then
+        if oc get csv -n openshift-mta &>/dev/null; then
           echo "Deleting MTA CSV..."
-          oc delete csv --all -n konveyor-tackle --wait=false || true
+          oc delete csv --all -n openshift-mta --wait=false || true
         fi
 
         # Delete CatalogSource
@@ -112,8 +119,8 @@ spec:
         fi
 
         # Delete namespace
-        echo "Deleting konveyor-tackle namespace..."
-        oc delete namespace konveyor-tackle --wait=false || true
+        echo "Deleting openshift-mta namespace..."
+        oc delete namespace openshift-mta --wait=false || true
 
         # Wait a bit for cleanup to start
         sleep 10

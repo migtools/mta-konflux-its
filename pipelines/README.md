@@ -7,13 +7,16 @@ the git resolver. Reference one with `pathInRepo: pipelines/<file>.yaml` (see th
 ## `mta-fbc-ui-koncur-e2e-pipeline.yaml`
 
 Deploys the MTA operator from an FBC (File-Based Catalog) image onto a leased OCPCTL pool
-cluster and runs both UI Cypress tests and koncur hub tests sequentially on the same cluster.
-Koncur tests run even if UI tests fail (failure-tolerant execution).
+cluster and runs DAST scan, koncur hub tests, and UI Cypress tests **sequentially**.
+
+**Sequential execution prevents auth conflicts**: DAST disables authentication for scanning,
+which would break UI tests if they ran in parallel. Tests run in order: DAST → Koncur → UI.
 
 **Benefits:**
-- **Single cluster lease**: Both test suites run on the same deployment
-- **Reuse operator deployment**: No duplicate setup overhead
-- **Combined reporting**: Slack notification includes all test results (UI + DAST + koncur)
+- **Single cluster lease**: All test suites run on the same deployment
+- **Reuse operator deployment**: No duplicate setup overhead  
+- **Skip vs Fail**: If any test fails, subsequent tests are **skipped** (not failed)
+- **Combined reporting**: Slack notification includes all test results (DAST + Koncur + UI)
 - **Resource efficiency**: Lower cluster usage compared to separate pipelines
 
 ### Flow
@@ -21,11 +24,14 @@ Koncur tests run even if UI tests fail (failure-tolerant execution).
 ```
 parse-metadata → filter-ocp-version → extract-operator-nvr → verify-image-pullable
   → lease-cluster → cleanup-existing-mta → deploy-operator
-  → run-dast-scan → run-e2e-tests (UI Cypress) → run-koncur-hub-tests
-finally: release-cluster, slack-notification
+  → run-dast-scan → run-koncur-tests → run-e2e-tests (UI Cypress)
+finally: cleanup-notify
+  (releases cluster → sends Slack notification)
 ```
 
-Tests run **sequentially** after deployment. Koncur tests run even if UI tests fail (failure-tolerant execution) to ensure complete test coverage and Slack notification regardless of UI test status.
+Tests run **sequentially** to avoid auth conflicts. If DAST fails, Koncur and UI are **skipped**.
+If Koncur fails, UI is **skipped**. The finally task always runs (if deployment succeeded) to
+release the cluster and send Slack notification with all test results.
 
 ### Parameters
 

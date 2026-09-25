@@ -55,7 +55,7 @@ spec:
 
   steps:
     - name: send-notification
-      image: registry.redhat.io/openshift4/ose-cli:latest
+      image: registry.access.redhat.com/ubi9/ubi:9.5
       env:
         - name: SLACK_WEBHOOK_URL
           valueFrom:
@@ -74,6 +74,13 @@ spec:
         PIPELINE_RUN="$(params.pipelineRunName)"
         TEST_BRANCH="$(params.testBranch)"
         KONCUR_BRANCH="$(params.koncurBranch)"
+
+        # Install oc CLI (needed to get snapshot name and OCP version)
+        if ! command -v oc &> /dev/null; then
+          echo "Installing oc CLI..."
+          curl -sL https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable/openshift-client-linux.tar.gz | tar -xzf - -C /usr/local/bin oc
+          chmod +x /usr/local/bin/oc
+        fi
 
         # Extract snapshot name from pipelineRun label
         SNAPSHOT_NAME=$(oc get pipelinerun "$PIPELINE_RUN" -o jsonpath='{.metadata.labels.appstudio\.openshift\.io/snapshot}' 2>/dev/null || true)

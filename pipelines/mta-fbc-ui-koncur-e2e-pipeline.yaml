@@ -4,9 +4,12 @@ metadata:
   name: mta-fbc-ui-koncur-e2e-pipeline
 spec:
   description: |
-    Deploy MTA operator from FBC catalog to a leased pool cluster and run UI and koncur E2E tests.
-    Runs UI Cypress tests sequentially followed by koncur hub tests on the same cluster.
-    Koncur tests run even if UI tests fail (failure-tolerant execution).
+    Deploy MTA operator from FBC catalog to a leased pool cluster and run E2E tests sequentially.
+    Test execution order: DAST scan → Koncur hub tests → UI Cypress tests.
+    Sequential execution prevents auth conflicts (DAST disables auth for scanning).
+    If any test fails, subsequent tests are skipped (not failed).
+    Finally task releases cluster and sends Slack notification, ensuring they execute
+    even if tests fail.
     Uses OCPCTL cluster pools for instant access to pre-provisioned clusters.
     Faster than ephemeral clusters (no 15-30 min provision wait).
 
@@ -48,7 +51,7 @@ spec:
       value: $(tasks.run-dast-scan.results.scanStatus)
     - name: KONCUR_TEST_OUTPUT
       description: Koncur hub test execution result
-      value: $(tasks.run-koncur-hub-tests.results.testStatus)
+      value: $(tasks.run-koncur-tests.results.testStatus)
 
   tasks:
     - name: parse-metadata
@@ -72,7 +75,7 @@ spec:
         - name: pipelineRunName
           value: $(context.pipelineRun.name)
         - name: allowedOcpVersions
-          value: "4.20,4.21,4.22"
+          value: "4.20,4.21,4.22,5.0"
       taskRef:
         resolver: git
         params:
@@ -195,38 +198,13 @@ spec:
           - name: pathInRepo
             value: tasks/run-dast-scan.yaml
 
-    - name: run-e2e-tests
+    - name: run-koncur-tests
       runAfter:
         - run-dast-scan
       when:
         - input: "run"
           operator: in
-          values: ["run"] # Set to "skip" to skip UI tests
-      params:
-        - name: uiRoute
-          value: $(tasks.deploy-operator.results.uiRoute)
-        - name: gitBranch
-          value: $(params.uiTestBranch)
-      taskRef:
-        resolver: git
-        params:
-          - name: url
-            value: https://github.com/migtools/mta-konflux-its
-          - name: revision
-            value: main
-          - name: pathInRepo
-            value: tasks/run-ui-e2e-tests.yaml
-
-    - name: run-koncur-hub-tests
-      runAfter:
-        - run-e2e-tests
-      when:
-        - input: "run"
-          operator: in
           values: ["run"] # Set to "skip" to skip koncur tests
-        - input: "$(tasks.run-e2e-tests.status)"
-          operator: in
-          values: ["Succeeded", "Failed"] # Run even if UI tests fail
       params:
         - name: uiRoute
           value: $(tasks.deploy-operator.results.uiRoute)
@@ -242,12 +220,36 @@ spec:
           - name: pathInRepo
             value: tasks/run-koncur-hub-tests.yaml
 
+    - name: run-e2e-tests
+      runAfter:
+        - run-koncur-tests
+      when:
+        - input: "run"
+          operator: in
+          values: ["run"] # Set to "skip" to skip UI tests
+      params:
+        - name: uiRoute
+          value: $(tasks.deploy-operator.results.uiRoute)
+        - name: gitRepository
+          value: https://github.com/migtools/mta-tackle2-ui.git
+        - name: gitBranch
+          value: main
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/run-ui-e2e-tests.yaml
+
   finally:
     - name: release-cluster
       when:
         - input: "$(tasks.lease-cluster.status)"
           operator: in
-          values: ["Succeeded"]
+          values: ["Succeeded"] # Only run if cluster was leased
       params:
         - name: clusterId
           value: $(tasks.lease-cluster.results.clusterId)
@@ -261,21 +263,18 @@ spec:
           - name: pathInRepo
             value: tasks/ocpctl-pool-release.yaml
 
-    - name: slack-notification
+    - name: send-slack-notification
       when:
-        - input: "run"
+        - input: "$(tasks.deploy-operator.status)"
           operator: in
-          values: ["run"] # Set to "skip" to disable Slack notifications during testing
-        - input: "$(tasks.run-koncur-hub-tests.status)"
-          operator: in
-          values: ["Succeeded", "Failed"] # Only send if koncur tests ran
+          values: ["Succeeded"] # Only run if deployment succeeded
       params:
         - name: testStatus
           value: "$(tasks.run-e2e-tests.status)"
         - name: dastStatus
           value: "$(tasks.run-dast-scan.status)"
         - name: koncurStatus
-          value: "$(tasks.run-koncur-hub-tests.status)"
+          value: "$(tasks.run-koncur-tests.status)"
         - name: operatorNVR
           value: "$(tasks.extract-operator-nvr.results.operatorNVR)"
         - name: snapshotJson

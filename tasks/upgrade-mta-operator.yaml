@@ -1,0 +1,389 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: upgrade-mta-operator
+  labels:
+    app.kubernetes.io/version: "0.1"
+  annotations:
+    tekton.dev/pipelines.minVersion: "0.12.1"
+    tekton.dev/categories: Deployment
+    tekton.dev/tags: mta,operator,openshift,upgrade
+    tekton.dev/displayName: "Upgrade MTA Operator"
+spec:
+  description: >-
+    Upgrade MTA operator from GA version to FBC version.
+    Handles both Z-stream (8.2.0 → 8.2.1) and Y-stream (8.2 → 8.3) upgrades.
+    For Y-stream upgrades, updates the subscription channel and approves the install plan.
+
+  params:
+    - name: clusterId
+      type: string
+      description: OCPCTL cluster UUID (used to download kubeconfig)
+    - name: sourceVersion
+      type: string
+      description: Source MTA version (e.g., "8.2.0")
+    - name: targetVersion
+      type: string
+      description: Target MTA version (e.g., "8.3.0")
+    - name: fbcImage
+      type: string
+      description: FBC catalog image reference for the target version
+    - name: snapshotJson
+      type: string
+      default: ""
+      description: Konflux snapshot JSON (used to extract FBC tag for version detection)
+    - name: operatorNamespace
+      type: string
+      default: "openshift-mta"
+      description: Namespace where the operator is installed
+    - name: registryPullSecretName
+      type: string
+      default: "registry-pull-secrets"
+      description: Name of the Kubernetes Secret containing stage registry pull credentials
+    - name: configureRegistryMirror
+      type: string
+      default: "true"
+      description: Apply ImageDigestMirrorSet for registry.redhat.io → registry.stage.redhat.io
+    - name: ocpctlUrl
+      type: string
+      default: "https://ocpctl.mg.dog8code.com/api/v1"
+      description: OCPCTL API base URL
+    - name: ocpctlSecretName
+      type: string
+      default: "ocpctl-ci-key"
+      description: Name of the Kubernetes Secret containing the OCPCTL API key
+
+  results:
+    - name: upgradeStatus
+      description: Upgrade status (SUCCESS or FAILED)
+    - name: csvName
+      description: Upgraded ClusterServiceVersion name
+    - name: upgradeType
+      description: Type of upgrade (Z_STREAM or Y_STREAM)
+
+  volumes:
+    - name: credentials
+      emptyDir: {}
+    - name: stage-pull-secret
+      secret:
+        secretName: $(params.registryPullSecretName)
+
+  steps:
+    - name: get-kubeconfig
+      image: registry.access.redhat.com/ubi9/ubi@sha256:e79f79172a6779775e1733cb4f49cd5ef03a0703c68ec46c717f93b9ac4a5e71
+      volumeMounts:
+        - name: credentials
+          mountPath: /credentials
+      env:
+        - name: OCPCTL_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: $(params.ocpctlSecretName)
+              key: api-key
+      script: |
+        #!/bin/bash
+        set -euo pipefail
+
+        OCPCTL_URL="$(params.ocpctlUrl)"
+        CLUSTER_ID="$(params.clusterId)"
+        KUBECONFIG_PATH="/credentials/kubeconfig"
+
+        echo "Downloading kubeconfig for cluster $CLUSTER_ID..."
+
+        DOWNLOAD_URL_RESPONSE=$(curl -s -H "Authorization: Bearer $OCPCTL_API_KEY" \
+          "$OCPCTL_URL/clusters/$CLUSTER_ID/kubeconfig/download-url")
+
+        DOWNLOAD_URL=$(echo "$DOWNLOAD_URL_RESPONSE" | grep -o '"download_url":"[^"]*"' | cut -d'"' -f4 | sed 's/\\u0026/\&/g')
+
+        if [ -z "$DOWNLOAD_URL" ]; then
+          echo "❌ Failed to get kubeconfig download URL"
+          exit 1
+        fi
+
+        HTTP_CODE=$(curl -s -o "$KUBECONFIG_PATH" -w "%{http_code}" "$DOWNLOAD_URL")
+
+        if [ "$HTTP_CODE" != "200" ]; then
+          echo "❌ Failed to download kubeconfig from S3 (HTTP $HTTP_CODE)"
+          exit 1
+        fi
+
+        echo "✅ Kubeconfig downloaded successfully"
+
+    - name: configure-pull-secret
+      image: quay.io/openshift/origin-cli:4.21
+      volumeMounts:
+        - name: credentials
+          mountPath: /credentials
+        - name: stage-pull-secret
+          mountPath: /stage-pull-secret
+      env:
+        - name: KUBECONFIG
+          value: /credentials/kubeconfig
+      script: |
+        #!/bin/bash
+        set -euo pipefail
+
+        echo "Merging stage registry credentials into cluster pull secret..."
+
+        oc get secret pull-secret -n openshift-config -o jsonpath='{.data.\.dockerconfigjson}' | base64 -d > /tmp/cluster-pull.json
+        cp /stage-pull-secret/.dockerconfigjson /tmp/stage-pull.json
+
+        MERGED=$(python3 -c "
+        import json
+        with open('/tmp/cluster-pull.json') as f: cluster = json.load(f)
+        with open('/tmp/stage-pull.json') as f: stage = json.load(f)
+        cluster['auths'].update(stage.get('auths', {}))
+        print(json.dumps(cluster))
+        ")
+
+        echo "$MERGED" > /tmp/merged-pull-secret.json
+        oc set data secret/pull-secret -n openshift-config --from-file=.dockerconfigjson=/tmp/merged-pull-secret.json
+
+        echo "✅ Stage registry credentials merged"
+
+    - name: configure-registry-mirror
+      image: quay.io/openshift/origin-cli:4.21
+      volumeMounts:
+        - name: credentials
+          mountPath: /credentials
+      env:
+        - name: KUBECONFIG
+          value: /credentials/kubeconfig
+      script: |
+        #!/bin/bash
+        set -euo pipefail
+
+        if [ "$(params.configureRegistryMirror)" != "true" ]; then
+          echo "Registry mirror configuration skipped"
+          exit 0
+        fi
+
+        echo "Configuring registry mirror: registry.redhat.io → registry.stage.redhat.io"
+
+        cat <<EOF | oc apply -f -
+        apiVersion: config.openshift.io/v1
+        kind: ImageDigestMirrorSet
+        metadata:
+          name: stage-registry-mirror
+        spec:
+          imageDigestMirrors:
+            - source: registry.redhat.io
+              mirrors:
+                - registry.stage.redhat.io
+        EOF
+
+        echo "✅ ImageDigestMirrorSet applied"
+        echo "Waiting for MachineConfigPool to finish updating..."
+        oc wait mcp master --for=condition=Updated --timeout=600s
+        echo "✅ MachineConfigPool updated"
+
+    - name: perform-upgrade
+      image: quay.io/openshift/origin-cli:4.21
+      volumeMounts:
+        - name: credentials
+          mountPath: /credentials
+      env:
+        - name: KUBECONFIG
+          value: /credentials/kubeconfig
+      script: |
+        #!/bin/bash
+        set -euo pipefail
+        trap 'echo "FAILED" > $(results.upgradeStatus.path)' ERR
+
+        SOURCE_VERSION="$(params.sourceVersion)"
+        TARGET_VERSION="$(params.targetVersion)"
+        FBC_IMAGE="$(params.fbcImage)"
+        NAMESPACE="$(params.operatorNamespace)"
+        SNAPSHOT_JSON='$(params.snapshotJson)'
+
+        echo "======================================"
+        echo "MTA Upgrade: $SOURCE_VERSION → $TARGET_VERSION"
+        echo "======================================"
+
+        # Extract major.minor from versions
+        SOURCE_MAJOR_MINOR=$(echo "$SOURCE_VERSION" | cut -d. -f1-2)
+        TARGET_MAJOR_MINOR=$(echo "$TARGET_VERSION" | cut -d. -f1-2)
+
+        # Determine upgrade type
+        if [ "$SOURCE_MAJOR_MINOR" = "$TARGET_MAJOR_MINOR" ]; then
+          UPGRADE_TYPE="Z_STREAM"
+          echo "Upgrade type: Z-stream (minor version bump within $SOURCE_MAJOR_MINOR)"
+        else
+          UPGRADE_TYPE="Y_STREAM"
+          echo "Upgrade type: Y-stream ($SOURCE_MAJOR_MINOR → $TARGET_MAJOR_MINOR)"
+        fi
+
+        echo "$UPGRADE_TYPE" > $(results.upgradeType.path)
+
+        # Get current UI pod name for monitoring pod bounce after upgrade
+        PREUPGRADE_UI_POD=$(oc get pods -n "$NAMESPACE" -l app.kubernetes.io/name=mta-ui -o jsonpath="{.items[0].metadata.name}" 2>/dev/null || echo "")
+        echo "Pre-upgrade UI pod: $PREUPGRADE_UI_POD"
+
+        # For Y-stream upgrades, we need to:
+        # 1. Create FBC catalog source
+        # 2. Update subscription channel
+        # 3. Approve install plan
+        if [ "$UPGRADE_TYPE" = "Y_STREAM" ]; then
+          echo ""
+          echo "Step 1: Creating FBC CatalogSource for target version..."
+
+          # Auto-detect channel from application name if snapshot provided
+          CHANNEL_NAME=""
+          if [ -n "$SNAPSHOT_JSON" ]; then
+            APP_NAME=$(echo "$SNAPSHOT_JSON" | grep -o '"application":"[^"]*"' | cut -d'"' -f4 || echo "")
+            if [ -n "$APP_NAME" ]; then
+              # Extract version: fbc-mta-8-3 → 8-3 → 8.3
+              VERSION=$(echo "$APP_NAME" | grep -oE '[0-9]+-[0-9]+' | tr '-' '.')
+              CHANNEL_NAME="stable-v${VERSION}"
+              echo "Auto-detected channel: $CHANNEL_NAME (from application: $APP_NAME)"
+            fi
+          fi
+
+          if [ -z "$CHANNEL_NAME" ]; then
+            CHANNEL_NAME="stable-v${TARGET_MAJOR_MINOR}"
+            echo "Using channel: $CHANNEL_NAME (from target version)"
+          fi
+
+          # Delete old FBC catalog if exists
+          oc delete catalogsource mta-konflux-catalog -n openshift-marketplace --ignore-not-found 2>/dev/null || true
+          sleep 5
+
+          cat <<EOF | oc apply -f -
+          apiVersion: operators.coreos.com/v1alpha1
+          kind: CatalogSource
+          metadata:
+            name: mta-konflux-catalog
+            namespace: openshift-marketplace
+          spec:
+            sourceType: grpc
+            image: $FBC_IMAGE
+            displayName: MTA Konflux Catalog
+            publisher: Red Hat
+            grpcPodConfig:
+              securityContextConfig: restricted
+              extractContent:
+                catalogDir: /configs
+                cacheDir: /tmp/cache
+            updateStrategy:
+              registryPoll:
+                interval: 10m
+        EOF
+
+          echo "Waiting for CatalogSource to be ready..."
+          for i in {1..60}; do
+            STATE=$(oc get catalogsource mta-konflux-catalog -n openshift-marketplace -o jsonpath='{.status.connectionState.lastObservedState}' 2>/dev/null || echo "")
+            if [ "$STATE" = "READY" ]; then
+              echo "✅ CatalogSource READY"
+              break
+            fi
+            if [ $i -eq 60 ]; then
+              echo "❌ CatalogSource failed to become ready"
+              echo "FAILED" > $(results.upgradeStatus.path)
+              exit 1
+            fi
+            sleep 5
+          done
+
+          echo ""
+          echo "Step 2: Updating subscription channel to $CHANNEL_NAME..."
+          oc patch subscription mta-operator -n "$NAMESPACE" --type=merge -p "{\"spec\":{\"channel\":\"$CHANNEL_NAME\",\"source\":\"mta-konflux-catalog\"}}"
+
+          echo "Waiting for new install plan to be created..."
+          sleep 60
+        fi
+
+        echo ""
+        echo "Step 3: Approving install plan for $TARGET_VERSION..."
+
+        # Find and approve install plan
+        INSTALL_PLAN=""
+        for i in {1..30}; do
+          INSTALL_PLAN=$(oc get installplan -n "$NAMESPACE" -o jsonpath="{.items[?(@.spec.clusterServiceVersionNames[*] =~ /mta-operator.v$TARGET_VERSION.*/)].metadata.name}" 2>/dev/null || echo "")
+
+          if [ -z "$INSTALL_PLAN" ]; then
+            # Fallback: try to find any pending install plan
+            INSTALL_PLAN=$(oc get installplan -n "$NAMESPACE" -o jsonpath='{.items[?(@.spec.approved==false)].metadata.name}' 2>/dev/null | awk '{print $1}' || echo "")
+          fi
+
+          if [ -n "$INSTALL_PLAN" ]; then
+            echo "Found install plan: $INSTALL_PLAN"
+            break
+          fi
+
+          if [ $i -eq 30 ]; then
+            echo "❌ No install plan found after 2.5 minutes"
+            echo "Available install plans:"
+            oc get installplan -n "$NAMESPACE" 2>/dev/null || true
+            echo "FAILED" > $(results.upgradeStatus.path)
+            exit 1
+          fi
+
+          echo "Waiting for install plan... ($i/30)"
+          sleep 5
+        done
+
+        echo "Approving install plan: $INSTALL_PLAN"
+        oc patch installplan "$INSTALL_PLAN" -n "$NAMESPACE" --type merge --patch '{"spec":{"approved":true}}'
+
+        echo ""
+        echo "Step 4: Waiting for upgrade to complete..."
+
+        # Wait for CSV to be installed
+        CSV=""
+        PHASE=""
+        for i in {1..180}; do
+          CSV=$(oc get subscription mta-operator -n "$NAMESPACE" -o jsonpath='{.status.installedCSV}' 2>/dev/null || echo "")
+          if [ -n "$CSV" ]; then
+            PHASE=$(oc get csv "$CSV" -n "$NAMESPACE" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+            if [ "$PHASE" = "Succeeded" ]; then
+              echo "✅ Upgraded CSV installed: $CSV"
+              echo "$CSV" > $(results.csvName.path)
+              break
+            fi
+          fi
+
+          if [ $((i % 12)) -eq 0 ]; then
+            echo "Waiting for CSV upgrade... ($i/180)"
+          fi
+          sleep 5
+        done
+
+        if [ -z "$CSV" ] || [ "$PHASE" != "Succeeded" ]; then
+          echo "❌ Upgrade failed or timed out"
+          echo "CSV: $CSV, Phase: ${PHASE:-not set}"
+          echo "FAILED" > $(results.upgradeStatus.path)
+          exit 1
+        fi
+
+        # Wait for old UI pod to be deleted (indicates upgrade rollout started)
+        if [ -n "$PREUPGRADE_UI_POD" ]; then
+          echo "Waiting for old UI pod to be deleted..."
+          for i in {1..240}; do
+            if ! oc get pod "$PREUPGRADE_UI_POD" -n "$NAMESPACE" &>/dev/null; then
+              echo "✅ Old UI pod deleted"
+              break
+            fi
+            if [ $i -eq 240 ]; then
+              echo "⚠️  Warning: Old UI pod still exists after 20 minutes"
+            fi
+            sleep 5
+          done
+        fi
+
+        # Wait for new UI pod to be ready
+        echo "Waiting for upgraded UI pods to be ready..."
+        oc wait pods -n "$NAMESPACE" -l app.kubernetes.io/name=mta-ui --for=condition=Ready --timeout=10m || true
+
+        # Wait for Tackle CR to be successful
+        echo "Waiting for Tackle CR to be successful..."
+        oc wait --namespace "$NAMESPACE" --for=condition=Successful --timeout=600s tackles.tackle.konveyor.io/tackle || true
+
+        echo ""
+        echo "======================================"
+        echo "✅ Upgrade completed successfully!"
+        echo "   From: $SOURCE_VERSION"
+        echo "   To: $TARGET_VERSION ($CSV)"
+        echo "   Type: $UPGRADE_TYPE"
+        echo "======================================"
+
+        echo "SUCCESS" > $(results.upgradeStatus.path)

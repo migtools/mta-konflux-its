@@ -136,7 +136,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: debug-ocpctl-timeout
           - name: pathInRepo
             value: tasks/ocpctl-pool-lease.yaml
 

@@ -44,7 +44,7 @@ spec:
       description: Apply ImageDigestMirrorSet for registry.redhat.io → registry.stage.redhat.io
     - name: ocpctlUrl
       type: string
-      default: "https://ocpctl.mg.dog8code.com/api/v1"
+      default: "https://ocpctl.apps.cnv2.engineering.redhat.com/api/v1"
       description: OCPCTL API base URL
     - name: ocpctlSecretName
       type: string

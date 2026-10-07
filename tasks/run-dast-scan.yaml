@@ -72,7 +72,7 @@ spec:
 
         CLUSTER_ID="$(params.clusterId)"
         KUBECONFIG_PATH="/workspace/kubeconfig"
-        OCPCTL_URL="https://ocpctl.mg.dog8code.com/api/v1"
+        OCPCTL_URL="https://ocpctl.apps.cnv2.engineering.redhat.com/api/v1"
 
         echo "Downloading admin kubeconfig for cluster: $CLUSTER_ID"
 

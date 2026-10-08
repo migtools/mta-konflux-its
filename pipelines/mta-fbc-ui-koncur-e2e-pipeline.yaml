@@ -152,7 +152,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: debug-ocpctl-timeout
           - name: pathInRepo
             value: tasks/cleanup-mta.yaml
 
@@ -172,7 +172,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: debug-ocpctl-timeout
           - name: pathInRepo
             value: tasks/deploy-mta-operator.yaml
 
@@ -194,7 +194,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: debug-ocpctl-timeout
           - name: pathInRepo
             value: tasks/run-dast-scan.yaml
 
@@ -259,7 +259,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: debug-ocpctl-timeout
           - name: pathInRepo
             value: tasks/ocpctl-pool-release.yaml
 

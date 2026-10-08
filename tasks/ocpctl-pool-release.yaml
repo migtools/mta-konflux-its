@@ -49,6 +49,7 @@ spec:
         echo "Releasing cluster back to pool: $CLUSTER_ID"
 
         RESPONSE=$(curl -s -w "\n%{http_code}" \
+          --insecure \
           -X POST "$OCPCTL_URL/pools/clusters/$CLUSTER_ID/release" \
           -H "Authorization: Bearer $OCPCTL_API_KEY" \
           -H "Content-Type: application/json")

@@ -56,7 +56,7 @@ spec:
 
         echo "Downloading kubeconfig for cluster: $CLUSTER_ID"
 
-        curl -s -o /tmp/kubeconfig \
+        curl -s --insecure -o /tmp/kubeconfig \
           -H "Authorization: Bearer $OCPCTL_API_KEY" \
           "$OCPCTL_URL/clusters/$CLUSTER_ID/kubeconfig"
 

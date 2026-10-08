@@ -77,6 +77,7 @@ spec:
         echo "  Purpose: $PURPOSE"
 
         RESPONSE=$(curl -s -w "\n%{http_code}" \
+          --insecure \
           -X POST "$OCPCTL_URL/pools/$POOL_NAME/lease" \
           -H "Authorization: Bearer $OCPCTL_API_KEY" \
           -H "Content-Type: application/json" \

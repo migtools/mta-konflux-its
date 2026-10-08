@@ -93,8 +93,11 @@ spec:
         echo "Downloading kubeconfig for cluster $CLUSTER_ID..."
 
         # Step 1: Get pre-signed download URL from OCPCTL API
+        echo "DEBUG: Requesting download URL from: $OCPCTL_URL/clusters/$CLUSTER_ID/kubeconfig/download-url"
         DOWNLOAD_URL_RESPONSE=$(curl -s --insecure -H "Authorization: Bearer $OCPCTL_API_KEY" \
           "$OCPCTL_URL/clusters/$CLUSTER_ID/kubeconfig/download-url")
+
+        echo "DEBUG: API Response: ${DOWNLOAD_URL_RESPONSE:0:200}..."
 
         # Extract download URL using grep/sed (no jq available)
         DOWNLOAD_URL=$(echo "$DOWNLOAD_URL_RESPONSE" | grep -o '"download_url":"[^"]*"' | cut -d'"' -f4 | sed 's/\\u0026/\&/g')

@@ -115,14 +115,17 @@ spec:
         if [[ "$DOWNLOAD_URL" == /api/* ]]; then
           FULL_URL="https://ocpctl.apps.cnv2.engineering.redhat.com${DOWNLOAD_URL}"
           echo "DEBUG: Local storage detected, using full URL: ${FULL_URL:0:80}..."
+          # For OCPCTL direct download, use Authorization header
+          curl -s --insecure -o "$KUBECONFIG_PATH" \
+            -H "Authorization: Bearer $OCPCTL_API_KEY" \
+            "$FULL_URL"
         else
           FULL_URL="$DOWNLOAD_URL"
           echo "DEBUG: S3 storage detected, using pre-signed URL"
+          # For S3 pre-signed URL, don't send Authorization header (auth is in URL)
+          curl -s --insecure -o "$KUBECONFIG_PATH" \
+            "$FULL_URL"
         fi
-
-        curl -s --insecure -o "$KUBECONFIG_PATH" \
-          -H "Authorization: Bearer $OCPCTL_API_KEY" \
-          "$FULL_URL"
 
         if [ ! -s "$KUBECONFIG_PATH" ]; then
           echo "❌ Failed to download kubeconfig"

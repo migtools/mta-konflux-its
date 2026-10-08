@@ -75,37 +75,9 @@ spec:
         echo "Leasing cluster from pool: $POOL_NAME"
         echo "  Duration: ${LEASE_DURATION}h"
         echo "  Purpose: $PURPOSE"
-        echo "  OCPCTL URL: $OCPCTL_URL"
-        echo ""
 
-        # Debug: Test DNS resolution
-        echo "DEBUG: Testing DNS resolution..."
-        if ! nslookup ocpctl.apps.cnv2.engineering.redhat.com 2>&1; then
-          echo "⚠️  DNS resolution failed"
-        fi
-        echo ""
-
-        # Debug: Test basic connectivity
-        echo "DEBUG: Testing TCP connectivity to ocpctl.apps.cnv2.engineering.redhat.com:443..."
-        if timeout 10 bash -c "cat < /dev/null > /dev/tcp/ocpctl.apps.cnv2.engineering.redhat.com/443" 2>&1; then
-          echo "✓ TCP connection successful"
-        else
-          echo "❌ TCP connection failed or timed out"
-        fi
-        echo ""
-
-        # Debug: Test HTTP(S) connectivity
-        echo "DEBUG: Testing HTTPS connectivity to API endpoint..."
-        if curl -v --insecure --connect-timeout 10 --max-time 15 -o /dev/null "$OCPCTL_URL/pools" 2>&1 | tail -20; then
-          echo "✓ HTTPS test complete (check output above)"
-        fi
-        echo ""
-
-        echo "DEBUG: Attempting cluster lease request..."
-        RESPONSE=$(curl -v -w "\n%{http_code}" \
+        RESPONSE=$(curl -s -w "\n%{http_code}" \
           --insecure \
-          --connect-timeout 15 \
-          --max-time 120 \
           -X POST "$OCPCTL_URL/pools/$POOL_NAME/lease" \
           -H "Authorization: Bearer $OCPCTL_API_KEY" \
           -H "Content-Type: application/json" \

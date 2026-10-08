@@ -92,12 +92,9 @@ spec:
 
         echo "Downloading kubeconfig for cluster $CLUSTER_ID..."
 
-        # Step 1: Get pre-signed download URL from OCPCTL API
-        echo "DEBUG: Requesting download URL from: $OCPCTL_URL/clusters/$CLUSTER_ID/kubeconfig/download-url"
+        # Step 1: Get download URL from OCPCTL API
         DOWNLOAD_URL_RESPONSE=$(curl -s --insecure -H "Authorization: Bearer $OCPCTL_API_KEY" \
           "$OCPCTL_URL/clusters/$CLUSTER_ID/kubeconfig/download-url")
-
-        echo "DEBUG: API Response: ${DOWNLOAD_URL_RESPONSE:0:200}..."
 
         # Extract download URL using grep/sed (no jq available)
         DOWNLOAD_URL=$(echo "$DOWNLOAD_URL_RESPONSE" | grep -o '"download_url":"[^"]*"' | cut -d'"' -f4 | sed 's/\\u0026/\&/g')
@@ -108,23 +105,19 @@ spec:
           exit 1
         fi
 
-        echo "Got download URL (expires in 15 minutes)"
+        echo "Got download URL"
 
         # Step 2: Download kubeconfig (handle both S3 and local storage)
-        # If download_url is a relative path, prepend OCPCTL base URL
         if [[ "$DOWNLOAD_URL" == /api/* ]]; then
+          # Local storage: relative path, need to prepend base URL and use auth header
           FULL_URL="https://ocpctl.apps.cnv2.engineering.redhat.com${DOWNLOAD_URL}"
-          echo "DEBUG: Local storage detected, using full URL: ${FULL_URL:0:80}..."
-          # For OCPCTL direct download, use Authorization header
           curl -s --insecure -o "$KUBECONFIG_PATH" \
             -H "Authorization: Bearer $OCPCTL_API_KEY" \
             "$FULL_URL"
         else
-          FULL_URL="$DOWNLOAD_URL"
-          echo "DEBUG: S3 storage detected, using pre-signed URL"
-          # For S3 pre-signed URL, don't send Authorization header (auth is in URL)
+          # S3 storage: pre-signed URL with auth in query params (don't send auth header)
           curl -s --insecure -o "$KUBECONFIG_PATH" \
-            "$FULL_URL"
+            "$DOWNLOAD_URL"
         fi
 
         if [ ! -s "$KUBECONFIG_PATH" ]; then
@@ -133,20 +126,6 @@ spec:
         fi
 
         echo "✅ Kubeconfig downloaded successfully"
-
-        # DEBUG: Check kubeconfig content
-        echo "DEBUG: Kubeconfig file size: $(wc -c < "$KUBECONFIG_PATH") bytes"
-        echo "DEBUG: First 200 chars of kubeconfig:"
-        head -c 200 "$KUBECONFIG_PATH" || echo "Unable to read kubeconfig"
-        echo ""
-        echo "DEBUG: Checking if it's valid YAML..."
-        if grep -q "apiVersion:" "$KUBECONFIG_PATH"; then
-          echo "DEBUG: Found apiVersion field - looks like valid kubeconfig"
-        else
-          echo "DEBUG: No apiVersion field found - might be error response"
-          echo "DEBUG: Full content:"
-          cat "$KUBECONFIG_PATH"
-        fi
 
     - name: configure-pull-secret
       image: quay.io/openshift/origin-cli:4.21

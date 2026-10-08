@@ -172,7 +172,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: debug-deploy-kubeconfig-download
+            value: main
           - name: pathInRepo
             value: tasks/deploy-mta-operator.yaml
 

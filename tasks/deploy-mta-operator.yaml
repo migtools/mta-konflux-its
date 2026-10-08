@@ -131,6 +131,20 @@ spec:
 
         echo "✅ Kubeconfig downloaded successfully"
 
+        # DEBUG: Check kubeconfig content
+        echo "DEBUG: Kubeconfig file size: $(wc -c < "$KUBECONFIG_PATH") bytes"
+        echo "DEBUG: First 200 chars of kubeconfig:"
+        head -c 200 "$KUBECONFIG_PATH" || echo "Unable to read kubeconfig"
+        echo ""
+        echo "DEBUG: Checking if it's valid YAML..."
+        if grep -q "apiVersion:" "$KUBECONFIG_PATH"; then
+          echo "DEBUG: Found apiVersion field - looks like valid kubeconfig"
+        else
+          echo "DEBUG: No apiVersion field found - might be error response"
+          echo "DEBUG: Full content:"
+          cat "$KUBECONFIG_PATH"
+        fi
+
     - name: configure-pull-secret
       image: quay.io/openshift/origin-cli:4.21
       volumeMounts:

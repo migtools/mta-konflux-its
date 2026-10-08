@@ -106,17 +106,26 @@ spec:
         fi
 
         echo "Got download URL (expires in 15 minutes)"
+        echo "DEBUG: Download URL prefix: ${DOWNLOAD_URL:0:80}..."
 
         # Step 2: Download kubeconfig from S3 pre-signed URL
-        HTTP_CODE=$(curl -s -o "$KUBECONFIG_PATH" -w "%{http_code}" "$DOWNLOAD_URL")
+        echo "DEBUG: Attempting to download kubeconfig from S3..."
+        HTTP_CODE=$(curl -v -o "$KUBECONFIG_PATH" -w "%{http_code}" "$DOWNLOAD_URL" 2>&1 | tee /tmp/curl_output.log | tail -1)
+
+        echo "DEBUG: HTTP response code: $HTTP_CODE"
+        echo "DEBUG: Curl output (last 20 lines):"
+        tail -20 /tmp/curl_output.log || echo "No curl output available"
 
         if [ "$HTTP_CODE" != "200" ]; then
           echo "❌ Failed to download kubeconfig from S3 (HTTP $HTTP_CODE)"
-          cat "$KUBECONFIG_PATH"
+          echo "DEBUG: Kubeconfig file contents:"
+          cat "$KUBECONFIG_PATH" || echo "Kubeconfig file not created"
+          echo "DEBUG: Kubeconfig file size: $(ls -lh $KUBECONFIG_PATH 2>/dev/null || echo 'File does not exist')"
           exit 1
         fi
 
         echo "✅ Kubeconfig downloaded successfully"
+        echo "DEBUG: Downloaded kubeconfig size: $(ls -lh $KUBECONFIG_PATH)"
 
     - name: configure-pull-secret
       image: quay.io/openshift/origin-cli:4.21

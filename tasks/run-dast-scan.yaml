@@ -76,7 +76,7 @@ spec:
 
         echo "Downloading admin kubeconfig for cluster: $CLUSTER_ID"
 
-        # Get pre-signed download URL from OCPCTL API
+        # Get download URL from OCPCTL API
         DOWNLOAD_URL_RESPONSE=$(curl -s --insecure -H "Authorization: Bearer $OCPCTL_API_KEY" \
           "$OCPCTL_URL/clusters/$CLUSTER_ID/kubeconfig/download-url")
 
@@ -88,11 +88,21 @@ spec:
           exit 1
         fi
 
-        # Download admin kubeconfig from S3
-        HTTP_CODE=$(curl -s -o "$KUBECONFIG_PATH" -w "%{http_code}" "$DOWNLOAD_URL")
+        # Download kubeconfig (handle both S3 and local storage)
+        if [[ "$DOWNLOAD_URL" == /api/* ]]; then
+          # Local storage: relative path, need to prepend base URL and use auth header
+          FULL_URL="https://ocpctl.apps.cnv2.engineering.redhat.com${DOWNLOAD_URL}"
+          curl -s --insecure -o "$KUBECONFIG_PATH" \
+            -H "Authorization: Bearer $OCPCTL_API_KEY" \
+            "$FULL_URL"
+        else
+          # S3 storage: pre-signed URL with auth in query params (don't send auth header)
+          curl -s --insecure -o "$KUBECONFIG_PATH" \
+            "$DOWNLOAD_URL"
+        fi
 
-        if [ "$HTTP_CODE" != "200" ]; then
-          echo "ERROR: Failed to download kubeconfig (HTTP $HTTP_CODE)"
+        if [ ! -s "$KUBECONFIG_PATH" ]; then
+          echo "ERROR: Failed to download kubeconfig"
           exit 1
         fi
 

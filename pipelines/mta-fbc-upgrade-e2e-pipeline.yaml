@@ -23,7 +23,7 @@ spec:
     - name: poolName
       description: Name of the cluster pool to lease from
       type: string
-      default: "ci-sno-pool-1"
+      default: "ci-koncur-pool"
     - name: gaVersion
       description: GA MTA version to start with (e.g., "8.2")
       type: string
@@ -32,22 +32,6 @@ spec:
       description: Target MTA version after upgrade (e.g., "8.3.0")
       type: string
       default: "8.3.0"
-    - name: preUpgradeTestBranch
-      description: Branch of mta-tackle2-ui to use for pre-upgrade tests
-      type: string
-      default: "main"
-    - name: postUpgradeTestBranch
-      description: Branch of mta-tackle2-ui to use for post-upgrade tests
-      type: string
-      default: "main"
-    - name: skipPreUpgradeTests
-      description: Skip pre-upgrade tests
-      type: string
-      default: "false"
-    - name: skipPostUpgradeTests
-      description: Skip post-upgrade tests
-      type: string
-      default: "false"
 
   results:
     - name: IMAGE_VERIFICATION
@@ -78,6 +62,10 @@ spec:
       description: Post-upgrade test execution result
       value: $(tasks.run-post-upgrade-tests.results.testStatus)
 
+  workspaces:
+    - name: cluster-credentials
+      description: Workspace for storing cluster kubeconfig
+
   tasks:
     - name: parse-metadata
       params:
@@ -93,6 +81,38 @@ spec:
           - name: pathInRepo
             value: tasks/test_metadata.yaml
 
+    - name: map-pre-upgrade-test-branch
+      runAfter:
+        - parse-metadata
+      params:
+        - name: mtaVersion
+          value: $(params.gaVersion)
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/map-version-to-test-branch.yaml
+
+    - name: map-post-upgrade-test-branch
+      runAfter:
+        - parse-metadata
+      params:
+        - name: mtaVersion
+          value: $(params.targetVersion)
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/map-version-to-test-branch.yaml
+
     - name: filter-ocp-version
       runAfter:
         - parse-metadata
@@ -100,7 +120,7 @@ spec:
         - name: pipelineRunName
           value: $(context.pipelineRun.name)
         - name: allowedOcpVersions
-          value: "4.20,4.21,4.22,5.0"
+          value: "4.22,5.0"
       taskRef:
         resolver: git
         params:
@@ -165,9 +185,28 @@ spec:
           - name: pathInRepo
             value: tasks/ocpctl-pool-lease.yaml
 
-    - name: cleanup-existing-mta
+    - name: download-kubeconfig
       runAfter:
         - lease-cluster
+      params:
+        - name: clusterId
+          value: $(tasks.lease-cluster.results.clusterId)
+      workspaces:
+        - name: kubeconfig
+          workspace: cluster-credentials
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/download-kubeconfig.yaml
+
+    - name: cleanup-existing-mta
+      runAfter:
+        - download-kubeconfig
       params:
         - name: clusterId
           value: $(tasks.lease-cluster.results.clusterId)
@@ -185,10 +224,11 @@ spec:
       runAfter:
         - cleanup-existing-mta
       params:
-        - name: clusterId
-          value: $(tasks.lease-cluster.results.clusterId)
         - name: mtaVersion
           value: $(params.gaVersion)
+      workspaces:
+        - name: kubeconfig
+          workspace: cluster-credentials
       taskRef:
         resolver: git
         params:
@@ -202,15 +242,12 @@ spec:
     - name: run-pre-upgrade-tests
       runAfter:
         - deploy-ga-operator
-      when:
-        - input: "$(params.skipPreUpgradeTests)"
-          operator: in
-          values: ["false"]
+        - map-pre-upgrade-test-branch
       params:
         - name: uiRoute
           value: $(tasks.deploy-ga-operator.results.uiRoute)
         - name: gitBranch
-          value: $(params.preUpgradeTestBranch)
+          value: $(tasks.map-pre-upgrade-test-branch.results.testBranch)
         - name: testMarker
           value: "pre-upgrade"
       taskRef:
@@ -227,8 +264,6 @@ spec:
       runAfter:
         - run-pre-upgrade-tests
       params:
-        - name: clusterId
-          value: $(tasks.lease-cluster.results.clusterId)
         - name: sourceVersion
           value: $(tasks.deploy-ga-operator.results.installedVersion)
         - name: targetVersion
@@ -237,6 +272,9 @@ spec:
           value: $(tasks.parse-metadata.results.component-container-image)
         - name: snapshotJson
           value: $(params.SNAPSHOT)
+      workspaces:
+        - name: kubeconfig
+          workspace: cluster-credentials
       taskRef:
         resolver: git
         params:
@@ -250,15 +288,12 @@ spec:
     - name: run-post-upgrade-tests
       runAfter:
         - upgrade-operator
-      when:
-        - input: "$(params.skipPostUpgradeTests)"
-          operator: in
-          values: ["false"]
+        - map-post-upgrade-test-branch
       params:
         - name: uiRoute
           value: $(tasks.deploy-ga-operator.results.uiRoute)
         - name: gitBranch
-          value: $(params.postUpgradeTestBranch)
+          value: $(tasks.map-post-upgrade-test-branch.results.testBranch)
         - name: testMarker
           value: "post-upgrade"
       taskRef:
@@ -309,7 +344,7 @@ spec:
         - name: pipelineRunName
           value: "$(context.pipelineRun.name)"
         - name: testBranch
-          value: "pre:$(params.preUpgradeTestBranch) post:$(params.postUpgradeTestBranch)"
+          value: "pre:$(tasks.map-pre-upgrade-test-branch.results.testBranch) post:$(tasks.map-post-upgrade-test-branch.results.testBranch)"
         - name: koncurBranch
           value: "N/A"
       taskRef:

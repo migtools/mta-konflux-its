@@ -16,9 +16,6 @@ spec:
     For Y-stream upgrades, updates the subscription channel and approves the install plan.
 
   params:
-    - name: clusterId
-      type: string
-      description: OCPCTL cluster UUID (used to download kubeconfig)
     - name: sourceVersion
       type: string
       description: Source MTA version (e.g., "8.2.0")
@@ -44,14 +41,10 @@ spec:
       type: string
       default: "true"
       description: Apply ImageDigestMirrorSet for registry.redhat.io → registry.stage.redhat.io
-    - name: ocpctlUrl
-      type: string
-      default: "https://ocpctl.apps.cnv2.engineering.redhat.com/api/v1"
-      description: OCPCTL API base URL
-    - name: ocpctlSecretName
-      type: string
-      default: "ocpctl-ci-key"
-      description: Name of the Kubernetes Secret containing the OCPCTL API key
+
+  workspaces:
+    - name: kubeconfig
+      description: Workspace containing the cluster kubeconfig
 
   results:
     - name: upgradeStatus
@@ -62,79 +55,19 @@ spec:
       description: Type of upgrade (Z_STREAM or Y_STREAM)
 
   volumes:
-    - name: credentials
-      emptyDir: {}
     - name: stage-pull-secret
       secret:
         secretName: $(params.registryPullSecretName)
 
   steps:
-    - name: get-kubeconfig
-      image: registry.access.redhat.com/ubi9/ubi@sha256:e79f79172a6779775e1733cb4f49cd5ef03a0703c68ec46c717f93b9ac4a5e71
-      volumeMounts:
-        - name: credentials
-          mountPath: /credentials
-      env:
-        - name: OCPCTL_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: $(params.ocpctlSecretName)
-              key: api-key
-      script: |
-        #!/bin/bash
-        set -euo pipefail
-
-        OCPCTL_URL="$(params.ocpctlUrl)"
-        CLUSTER_ID="$(params.clusterId)"
-        KUBECONFIG_PATH="/credentials/kubeconfig"
-
-        echo "Downloading kubeconfig for cluster $CLUSTER_ID..."
-
-        # Step 1: Get download URL from OCPCTL API
-        DOWNLOAD_URL_RESPONSE=$(curl -s --insecure -H "Authorization: Bearer $OCPCTL_API_KEY" \
-          "$OCPCTL_URL/clusters/$CLUSTER_ID/kubeconfig/download-url")
-
-        # Extract download URL using grep/sed (no jq available)
-        DOWNLOAD_URL=$(echo "$DOWNLOAD_URL_RESPONSE" | grep -o '"download_url":"[^"]*"' | cut -d'"' -f4 | sed 's/\\u0026/\&/g')
-
-        if [ -z "$DOWNLOAD_URL" ]; then
-          echo "❌ Failed to get kubeconfig download URL"
-          echo "Response: $DOWNLOAD_URL_RESPONSE"
-          exit 1
-        fi
-
-        echo "Got download URL"
-
-        # Step 2: Download kubeconfig (handle both S3 and local storage)
-        if [[ "$DOWNLOAD_URL" == /api/* ]]; then
-          # Local storage: relative path, need to prepend base URL and use auth header
-          FULL_URL="https://ocpctl.apps.cnv2.engineering.redhat.com${DOWNLOAD_URL}"
-          curl -s --insecure -o "$KUBECONFIG_PATH" \
-            -H "Authorization: Bearer $OCPCTL_API_KEY" \
-            "$FULL_URL"
-        else
-          # S3 storage: pre-signed URL with auth in query params (don't send auth header)
-          curl -s --insecure -o "$KUBECONFIG_PATH" \
-            "$DOWNLOAD_URL"
-        fi
-
-        if [ ! -s "$KUBECONFIG_PATH" ]; then
-          echo "❌ Failed to download kubeconfig"
-          exit 1
-        fi
-
-        echo "✅ Kubeconfig downloaded successfully"
-
     - name: configure-pull-secret
       image: quay.io/openshift/origin-cli:4.21
       volumeMounts:
-        - name: credentials
-          mountPath: /credentials
         - name: stage-pull-secret
           mountPath: /stage-pull-secret
       env:
         - name: KUBECONFIG
-          value: /credentials/kubeconfig
+          value: $(workspaces.kubeconfig.path)/kubeconfig
       script: |
         #!/bin/bash
         set -euo pipefail
@@ -159,12 +92,9 @@ spec:
 
     - name: configure-registry-mirror
       image: quay.io/openshift/origin-cli:4.21
-      volumeMounts:
-        - name: credentials
-          mountPath: /credentials
       env:
         - name: KUBECONFIG
-          value: /credentials/kubeconfig
+          value: $(workspaces.kubeconfig.path)/kubeconfig
       script: |
         #!/bin/bash
         set -euo pipefail
@@ -195,12 +125,9 @@ spec:
 
     - name: perform-upgrade
       image: quay.io/openshift/origin-cli:4.21
-      volumeMounts:
-        - name: credentials
-          mountPath: /credentials
       env:
         - name: KUBECONFIG
-          value: /credentials/kubeconfig
+          value: $(workspaces.kubeconfig.path)/kubeconfig
       script: |
         #!/bin/bash
         set -euo pipefail

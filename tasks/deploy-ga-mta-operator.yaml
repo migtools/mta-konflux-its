@@ -15,9 +15,6 @@ spec:
     certified-operators catalog on a target cluster. Used for upgrade testing.
 
   params:
-    - name: clusterId
-      type: string
-      description: OCPCTL cluster UUID (used to download kubeconfig)
     - name: mtaVersion
       type: string
       description: GA MTA version to install (e.g., "8.2", "8.3")
@@ -29,14 +26,10 @@ spec:
       type: string
       default: "openshift-mta"
       description: Namespace to install the operator
-    - name: ocpctlUrl
-      type: string
-      default: "https://ocpctl.apps.cnv2.engineering.redhat.com/api/v1"
-      description: OCPCTL API base URL
-    - name: ocpctlSecretName
-      type: string
-      default: "ocpctl-ci-key"
-      description: Name of the Kubernetes Secret containing the OCPCTL API key
+
+  workspaces:
+    - name: kubeconfig
+      description: Workspace containing the cluster kubeconfig
 
   results:
     - name: deploymentStatus
@@ -48,75 +41,12 @@ spec:
     - name: installedVersion
       description: Actual MTA version installed
 
-  volumes:
-    - name: credentials
-      emptyDir: {}
-
   steps:
-    - name: get-kubeconfig
-      image: registry.access.redhat.com/ubi9/ubi@sha256:e79f79172a6779775e1733cb4f49cd5ef03a0703c68ec46c717f93b9ac4a5e71
-      volumeMounts:
-        - name: credentials
-          mountPath: /credentials
-      env:
-        - name: OCPCTL_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: $(params.ocpctlSecretName)
-              key: api-key
-      script: |
-        #!/bin/bash
-        set -euo pipefail
-
-        OCPCTL_URL="$(params.ocpctlUrl)"
-        CLUSTER_ID="$(params.clusterId)"
-        KUBECONFIG_PATH="/credentials/kubeconfig"
-
-        echo "Downloading kubeconfig for cluster $CLUSTER_ID..."
-
-        # Step 1: Get download URL from OCPCTL API
-        DOWNLOAD_URL_RESPONSE=$(curl -s --insecure -H "Authorization: Bearer $OCPCTL_API_KEY" \
-          "$OCPCTL_URL/clusters/$CLUSTER_ID/kubeconfig/download-url")
-
-        # Extract download URL using grep/sed (no jq available)
-        DOWNLOAD_URL=$(echo "$DOWNLOAD_URL_RESPONSE" | grep -o '"download_url":"[^"]*"' | cut -d'"' -f4 | sed 's/\\u0026/\&/g')
-
-        if [ -z "$DOWNLOAD_URL" ]; then
-          echo "❌ Failed to get kubeconfig download URL"
-          echo "Response: $DOWNLOAD_URL_RESPONSE"
-          exit 1
-        fi
-
-        echo "Got download URL"
-
-        # Step 2: Download kubeconfig (handle both S3 and local storage)
-        if [[ "$DOWNLOAD_URL" == /api/* ]]; then
-          # Local storage: relative path, need to prepend base URL and use auth header
-          FULL_URL="https://ocpctl.apps.cnv2.engineering.redhat.com${DOWNLOAD_URL}"
-          curl -s --insecure -o "$KUBECONFIG_PATH" \
-            -H "Authorization: Bearer $OCPCTL_API_KEY" \
-            "$FULL_URL"
-        else
-          # S3 storage: pre-signed URL with auth in query params (don't send auth header)
-          curl -s --insecure -o "$KUBECONFIG_PATH" \
-            "$DOWNLOAD_URL"
-        fi
-
-        if [ ! -s "$KUBECONFIG_PATH" ]; then
-          echo "❌ Failed to download kubeconfig"
-          exit 1
-        fi
-
-        echo "✅ Kubeconfig downloaded successfully"
-
     - name: install-ga-operator
       image: quay.io/openshift/origin-cli:4.21
-      volumeMounts:
-        - name: credentials
-          mountPath: /credentials
       env:
         - name: KUBECONFIG
-          value: /credentials/kubeconfig
+          value: $(workspaces.kubeconfig.path)/kubeconfig
       script: |
         #!/bin/bash
         set -euo pipefail

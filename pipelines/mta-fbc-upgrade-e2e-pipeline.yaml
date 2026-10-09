@@ -24,14 +24,6 @@ spec:
       description: Name of the cluster pool to lease from
       type: string
       default: "ci-koncur-pool"
-    - name: gaVersion
-      description: GA MTA version to start with (e.g., "8.2")
-      type: string
-      default: "8.2"
-    - name: targetVersion
-      description: Target MTA version after upgrade (e.g., "8.3.0")
-      type: string
-      default: "8.3.0"
 
   results:
     - name: IMAGE_VERIFICATION
@@ -79,10 +71,10 @@ spec:
 
     - name: map-pre-upgrade-test-branch
       runAfter:
-        - parse-metadata
+        - extract-mta-versions
       params:
         - name: mtaVersion
-          value: $(params.gaVersion)
+          value: $(tasks.extract-mta-versions.results.gaVersion)
       taskRef:
         resolver: git
         params:
@@ -95,10 +87,10 @@ spec:
 
     - name: map-post-upgrade-test-branch
       runAfter:
-        - parse-metadata
+        - extract-mta-versions
       params:
         - name: mtaVersion
-          value: $(params.targetVersion)
+          value: $(tasks.extract-mta-versions.results.targetVersion)
       taskRef:
         resolver: git
         params:
@@ -145,9 +137,27 @@ spec:
           - name: pathInRepo
             value: tasks/extract-operator-nvr.yaml
 
-    - name: verify-image-pullable
+    - name: extract-mta-versions
       runAfter:
         - extract-operator-nvr
+      params:
+        - name: snapshotJson
+          value: $(params.SNAPSHOT)
+        - name: operatorNVR
+          value: $(tasks.extract-operator-nvr.results.operatorNVR)
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: upgrade-pipeline-with-ocpctl-fixes
+          - name: pathInRepo
+            value: tasks/extract-mta-versions.yaml
+
+    - name: verify-image-pullable
+      runAfter:
+        - extract-mta-versions
       params:
         - name: fbcImage
           value: $(tasks.parse-metadata.results.component-container-image)
@@ -204,7 +214,7 @@ spec:
         - name: clusterId
           value: $(tasks.lease-cluster.results.clusterId)
         - name: mtaVersion
-          value: $(params.gaVersion)
+          value: $(tasks.extract-mta-versions.results.gaVersion)
       taskRef:
         resolver: git
         params:
@@ -245,7 +255,7 @@ spec:
         - name: sourceVersion
           value: $(tasks.deploy-ga-operator.results.installedVersion)
         - name: targetVersion
-          value: $(params.targetVersion)
+          value: $(tasks.extract-mta-versions.results.targetVersion)
         - name: fbcImage
           value: $(tasks.parse-metadata.results.component-container-image)
         - name: snapshotJson

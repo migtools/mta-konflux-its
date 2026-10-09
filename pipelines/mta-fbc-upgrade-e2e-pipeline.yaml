@@ -62,10 +62,6 @@ spec:
       description: Post-upgrade test execution result
       value: $(tasks.run-post-upgrade-tests.results.testStatus)
 
-  workspaces:
-    - name: cluster-credentials
-      description: Workspace for storing cluster kubeconfig
-
   tasks:
     - name: parse-metadata
       params:
@@ -185,28 +181,9 @@ spec:
           - name: pathInRepo
             value: tasks/ocpctl-pool-lease.yaml
 
-    - name: download-kubeconfig
-      runAfter:
-        - lease-cluster
-      params:
-        - name: clusterId
-          value: $(tasks.lease-cluster.results.clusterId)
-      workspaces:
-        - name: kubeconfig
-          workspace: cluster-credentials
-      taskRef:
-        resolver: git
-        params:
-          - name: url
-            value: https://github.com/migtools/mta-konflux-its
-          - name: revision
-            value: upgrade-pipeline-with-ocpctl-fixes
-          - name: pathInRepo
-            value: tasks/download-kubeconfig.yaml
-
     - name: cleanup-existing-mta
       runAfter:
-        - download-kubeconfig
+        - lease-cluster
       params:
         - name: clusterId
           value: $(tasks.lease-cluster.results.clusterId)
@@ -224,11 +201,10 @@ spec:
       runAfter:
         - cleanup-existing-mta
       params:
+        - name: clusterId
+          value: $(tasks.lease-cluster.results.clusterId)
         - name: mtaVersion
           value: $(params.gaVersion)
-      workspaces:
-        - name: kubeconfig
-          workspace: cluster-credentials
       taskRef:
         resolver: git
         params:
@@ -264,6 +240,8 @@ spec:
       runAfter:
         - run-pre-upgrade-tests
       params:
+        - name: clusterId
+          value: $(tasks.lease-cluster.results.clusterId)
         - name: sourceVersion
           value: $(tasks.deploy-ga-operator.results.installedVersion)
         - name: targetVersion
@@ -272,9 +250,6 @@ spec:
           value: $(tasks.parse-metadata.results.component-container-image)
         - name: snapshotJson
           value: $(params.SNAPSHOT)
-      workspaces:
-        - name: kubeconfig
-          workspace: cluster-credentials
       taskRef:
         resolver: git
         params:

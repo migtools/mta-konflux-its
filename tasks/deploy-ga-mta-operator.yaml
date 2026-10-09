@@ -15,6 +15,9 @@ spec:
     certified-operators catalog on a target cluster. Used for upgrade testing.
 
   params:
+    - name: clusterId
+      type: string
+      description: OCPCTL cluster UUID (used to download kubeconfig)
     - name: mtaVersion
       type: string
       description: GA MTA version to install (e.g., "8.2", "8.3")
@@ -26,10 +29,14 @@ spec:
       type: string
       default: "openshift-mta"
       description: Namespace to install the operator
-
-  workspaces:
-    - name: kubeconfig
-      description: Workspace containing the cluster kubeconfig
+    - name: ocpctlUrl
+      type: string
+      default: "https://ocpctl.apps.cnv2.engineering.redhat.com/api/v1"
+      description: OCPCTL API base URL
+    - name: ocpctlSecretName
+      type: string
+      default: "ocpctl-ci-key"
+      description: Name of the Kubernetes Secret containing the OCPCTL API key
 
   results:
     - name: deploymentStatus
@@ -41,12 +48,41 @@ spec:
     - name: installedVersion
       description: Actual MTA version installed
 
+  volumes:
+    - name: credentials
+      emptyDir: {}
+
   steps:
+    - name: get-kubeconfig
+      image: registry.access.redhat.com/ubi9/ubi@sha256:e79f79172a6779775e1733cb4f49cd5ef03a0703c68ec46c717f93b9ac4a5e71
+      volumeMounts:
+        - name: credentials
+          mountPath: /credentials
+      env:
+        - name: OCPCTL_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: $(params.ocpctlSecretName)
+              key: api-key
+      script: |
+        #!/bin/bash
+        set -euo pipefail
+        URL=$(curl -s --insecure -H "Authorization: Bearer $OCPCTL_API_KEY" \
+          "$(params.ocpctlUrl)/clusters/$(params.clusterId)/kubeconfig/download-url" \
+          | grep -o '"download_url":"[^"]*"' | cut -d'"' -f4 | sed 's/\\u0026/\&/g')
+        [[ "$URL" == /api/* ]] && \
+          curl -s --insecure -H "Authorization: Bearer $OCPCTL_API_KEY" \
+            -o /credentials/kubeconfig "https://ocpctl.apps.cnv2.engineering.redhat.com${URL}" || \
+          curl -s --insecure -o /credentials/kubeconfig "$URL"
+
     - name: install-ga-operator
       image: quay.io/openshift/origin-cli:4.21
+      volumeMounts:
+        - name: credentials
+          mountPath: /credentials
       env:
         - name: KUBECONFIG
-          value: $(workspaces.kubeconfig.path)/kubeconfig
+          value: /credentials/kubeconfig
       script: |
         #!/bin/bash
         set -euo pipefail

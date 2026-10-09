@@ -1,0 +1,239 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: deploy-ga-mta-operator
+  labels:
+    app.kubernetes.io/version: "0.1"
+  annotations:
+    tekton.dev/pipelines.minVersion: "0.12.1"
+    tekton.dev/categories: Deployment
+    tekton.dev/tags: mta,operator,openshift,ga
+    tekton.dev/displayName: "Deploy GA MTA Operator"
+spec:
+  description: >-
+    Install GA (General Availability) version of MTA operator from the
+    certified-operators catalog on a target cluster. Used for upgrade testing.
+
+  params:
+    - name: clusterId
+      type: string
+      description: OCPCTL cluster UUID (used to download kubeconfig)
+    - name: mtaVersion
+      type: string
+      description: GA MTA version to install (e.g., "8.2", "8.3")
+    - name: packageName
+      type: string
+      default: "mta-operator"
+      description: Operator package name
+    - name: operatorNamespace
+      type: string
+      default: "openshift-mta"
+      description: Namespace to install the operator
+    - name: ocpctlUrl
+      type: string
+      default: "https://ocpctl.apps.cnv2.engineering.redhat.com/api/v1"
+      description: OCPCTL API base URL
+    - name: ocpctlSecretName
+      type: string
+      default: "ocpctl-ci-key"
+      description: Name of the Kubernetes Secret containing the OCPCTL API key
+
+  results:
+    - name: deploymentStatus
+      description: Deployment status (SUCCESS or FAILED)
+    - name: csvName
+      description: Installed ClusterServiceVersion name
+    - name: uiRoute
+      description: MTA UI route hostname
+    - name: installedVersion
+      description: Actual MTA version installed
+
+  volumes:
+    - name: credentials
+      emptyDir: {}
+
+  steps:
+    - name: get-kubeconfig
+      image: registry.access.redhat.com/ubi9/ubi@sha256:e79f79172a6779775e1733cb4f49cd5ef03a0703c68ec46c717f93b9ac4a5e71
+      volumeMounts:
+        - name: credentials
+          mountPath: /credentials
+      env:
+        - name: OCPCTL_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: $(params.ocpctlSecretName)
+              key: api-key
+      script: |
+        #!/bin/bash
+        set -euo pipefail
+        URL=$(curl -s --insecure -H "Authorization: Bearer $OCPCTL_API_KEY" \
+          "$(params.ocpctlUrl)/clusters/$(params.clusterId)/kubeconfig/download-url" \
+          | grep -o '"download_url":"[^"]*"' | cut -d'"' -f4 | sed 's/\\u0026/\&/g')
+        [[ "$URL" == /api/* ]] && \
+          curl -s --insecure -H "Authorization: Bearer $OCPCTL_API_KEY" \
+            -o /credentials/kubeconfig "https://ocpctl.apps.cnv2.engineering.redhat.com${URL}" || \
+          curl -s --insecure -o /credentials/kubeconfig "$URL"
+
+    - name: install-ga-operator
+      image: quay.io/openshift/origin-cli:4.21
+      volumeMounts:
+        - name: credentials
+          mountPath: /credentials
+      env:
+        - name: KUBECONFIG
+          value: /credentials/kubeconfig
+      script: |
+        #!/bin/bash
+        set -euo pipefail
+        trap 'echo "FAILED" > $(results.deploymentStatus.path)' ERR
+
+        MTA_VERSION="$(params.mtaVersion)"
+        PACKAGE_NAME="$(params.packageName)"
+        NAMESPACE="$(params.operatorNamespace)"
+        CHANNEL_NAME="stable-v${MTA_VERSION}"
+
+        echo "Installing GA MTA Operator version $MTA_VERSION from certified-operators catalog"
+        echo "Channel: $CHANNEL_NAME"
+
+        oc create namespace "$NAMESPACE" --dry-run=client -o yaml | oc apply -f -
+
+        echo "Cleaning up previous installation (if any)..."
+        oc delete tackle mta -n "$NAMESPACE" --ignore-not-found --timeout=120s 2>/dev/null || true
+        oc delete subscription mta-operator -n "$NAMESPACE" --ignore-not-found 2>/dev/null || true
+        oc get csv -n "$NAMESPACE" -o name 2>/dev/null | xargs -r oc delete -n "$NAMESPACE" --ignore-not-found 2>/dev/null || true
+        oc delete operatorgroup mta-operator-group -n "$NAMESPACE" --ignore-not-found 2>/dev/null || true
+        sleep 10
+        echo "✅ Previous installation cleaned up"
+
+        cat <<EOF | oc apply -f -
+        apiVersion: operators.coreos.com/v1
+        kind: OperatorGroup
+        metadata:
+          name: mta-operator-group
+          namespace: $NAMESPACE
+        spec:
+          targetNamespaces:
+            - $NAMESPACE
+        EOF
+
+        cat <<EOF | oc apply -f -
+        apiVersion: operators.coreos.com/v1alpha1
+        kind: Subscription
+        metadata:
+          name: mta-operator
+          namespace: $NAMESPACE
+        spec:
+          channel: $CHANNEL_NAME
+          installPlanApproval: Automatic
+          name: $PACKAGE_NAME
+          source: certified-operators
+          sourceNamespace: openshift-marketplace
+        EOF
+
+        echo "Waiting for GA operator installation (15 minute timeout)..."
+        sleep 10
+
+        CSV=""
+        PHASE=""
+        for i in {1..180}; do
+          CSV=$(oc get subscription mta-operator -n "$NAMESPACE" -o jsonpath='{.status.installedCSV}' 2>/dev/null || echo "")
+          if [ -n "$CSV" ]; then
+            PHASE=$(oc get csv "$CSV" -n "$NAMESPACE" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+            if [ "$PHASE" = "Succeeded" ]; then
+              echo "✅ GA Operator installed: $CSV"
+              echo "$CSV" > $(results.csvName.path)
+
+              # Extract actual version from CSV name (e.g., mta-operator.v8.2.0 → 8.2.0)
+              INSTALLED_VERSION=$(echo "$CSV" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "$MTA_VERSION.0")
+              echo "$INSTALLED_VERSION" > $(results.installedVersion.path)
+              echo "Installed version: $INSTALLED_VERSION"
+              break
+            fi
+          fi
+
+          if [ $((i % 12)) -eq 0 ]; then
+            echo "Waiting for CSV... ($i/180)"
+          fi
+          sleep 5
+        done
+
+        if [ -z "$CSV" ] || [ "$PHASE" != "Succeeded" ]; then
+          echo "❌ GA Operator installation failed or timed out after 15 minutes"
+          echo "CSV: $CSV, Phase: ${PHASE:-not set}"
+          echo ""
+          echo "Diagnostics:"
+          echo "Subscription status:"
+          oc get subscription mta-operator -n "$NAMESPACE" -o yaml 2>/dev/null | grep -A 20 "status:" || echo "  No subscription status"
+          echo ""
+          echo "InstallPlans:"
+          oc get installplan -n "$NAMESPACE" 2>/dev/null || echo "  No InstallPlans found"
+          echo ""
+          echo "Events:"
+          oc get events -n "$NAMESPACE" --sort-by='.lastTimestamp' 2>/dev/null | tail -10 || echo "  No events"
+          echo "FAILED" > $(results.deploymentStatus.path)
+          exit 1
+        fi
+
+        oc wait --for=condition=available --timeout=300s deployment/mta-operator -n "$NAMESPACE"
+
+        cat <<EOF | oc apply -f -
+        apiVersion: tackle.konveyor.io/v1alpha1
+        kind: Tackle
+        metadata:
+          name: mta
+          namespace: $NAMESPACE
+        spec:
+          provider_c_sharp_container_requests_memory: 512Mi
+          provider_c_sharp_container_limits_memory: 512Mi
+          provider_c_sharp_container_requests_cpu: 500m
+          provider_c_sharp_container_limits_cpu: 500m
+          language_discovery_container_limits_cpu: 500m
+          language_discovery_container_requests_cpu: 500m
+          language_discovery_container_limits_memory: 512Mi
+          language_discovery_container_requests_memory: 512Mi
+          analyzer_container_limits_cpu: 500m
+          analyzer_container_requests_cpu: 500m
+          analyzer_container_limits_memory: 512Mi
+          analyzer_container_requests_memory: 512Mi
+          provider_generic_container_limits_cpu: 500m
+          provider_generic_container_requests_cpu: 500m
+          provider_generic_container_limits_memory: 512Mi
+          provider_generic_container_requests_memory: 512Mi
+          provider_nodejs_container_limits_cpu: 500m
+          provider_nodejs_container_requests_cpu: 500m
+          provider_nodejs_container_limits_memory: 512Mi
+          provider_nodejs_container_requests_memory: 512Mi
+          hub_bucket_volume_size: "25Gi"
+          cache_data_volume_size: "25Gi"
+          feature_auth_required: "true"
+        EOF
+
+        echo "Waiting for MTA UI deployment to be created..."
+        for i in {1..120}; do
+          if oc get deployment mta-ui -n "$NAMESPACE" &>/dev/null; then
+            echo "✅ MTA UI deployment exists"
+            break
+          fi
+          if [ $i -eq 120 ]; then
+            echo "ERROR: MTA UI deployment not created after 10 minutes"
+            echo "FAILED" > $(results.deploymentStatus.path)
+            exit 1
+          fi
+          sleep 5
+        done
+
+        echo "Waiting for MTA UI deployment to roll out..."
+        oc rollout status deployment/mta-ui -n "$NAMESPACE" --timeout=900s
+
+        UI_ROUTE=$(oc get route mta -n "$NAMESPACE" -o jsonpath='{.spec.host}' 2>/dev/null || echo "")
+        if [ -z "$UI_ROUTE" ]; then
+          echo "ERROR: Could not get MTA route"
+          echo "FAILED" > $(results.deploymentStatus.path)
+          exit 1
+        fi
+
+        echo "✅ MTA UI: https://$UI_ROUTE"
+        echo -n "$UI_ROUTE" > $(results.uiRoute.path)
+
+        echo "SUCCESS" > $(results.deploymentStatus.path)

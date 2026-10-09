@@ -1,0 +1,152 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: run-upgrade-tests
+  labels:
+    app.kubernetes.io/version: "0.1"
+  annotations:
+    tekton.dev/pipelines.minVersion: "0.12.1"
+    tekton.dev/categories: Test
+    tekton.dev/tags: cypress,e2e,ui,mta,upgrade
+    tekton.dev/displayName: "Run MTA Upgrade Tests"
+spec:
+  description: >-
+    Run Cypress E2E tests for upgrade scenarios.
+    Supports pre-upgrade and post-upgrade test markers.
+
+  params:
+    - name: uiRoute
+      type: string
+      description: MTA UI route (hostname only, without https://)
+    - name: gitRepository
+      type: string
+      default: "https://github.com/migtools/mta-tackle2-ui.git"
+      description: tackle2-ui repository URL
+    - name: gitBranch
+      type: string
+      default: "main"
+      description: Branch to clone for tests
+    - name: testMarker
+      type: string
+      default: "pre-upgrade"
+      description: Test marker to run (pre-upgrade or post-upgrade)
+    - name: testTags
+      type: string
+      default: ""
+      description: Comma-separated test tags to include (empty = run all tests matching marker only)
+
+  results:
+    - name: testStatus
+      description: Test execution status (PASSED or FAILED)
+    - name: testMarker
+      description: The marker that was run
+
+  stepTemplate:
+    computeResources:
+      requests:
+        memory: 4Gi
+        cpu: "2"
+      limits:
+        memory: 8Gi
+        cpu: "4"
+
+  steps:
+    - name: run-upgrade-tests
+      image: cypress/included:15.7.0
+      env:
+        - name: CYPRESS_CACHE_FOLDER
+          value: /tmp/.cache/Cypress
+        - name: npm_config_cache
+          value: /tmp/.cache/npm
+        - name: NODE_TLS_REJECT_UNAUTHORIZED
+          value: "0"
+      script: |
+        #!/bin/bash
+        set -euo pipefail
+        trap 'echo "FAILED" > $(results.testStatus.path)' ERR
+
+        echo "Installing curl and jq for test utilities..."
+        apt-get update -qq && apt-get install -y -qq curl jq > /dev/null 2>&1
+
+        UI_ROUTE="$(params.uiRoute)"
+        BASE_URL="https://${UI_ROUTE}"
+        TEST_MARKER="$(params.testMarker)"
+
+        echo "======================================"
+        echo "Running $TEST_MARKER Tests"
+        echo "MTA UI URL: $BASE_URL"
+        echo "======================================"
+
+        echo "$TEST_MARKER" > $(results.testMarker.path)
+
+        echo "Cloning tackle2-ui repository..."
+        cd /tmp
+        git clone --depth 1 --branch $(params.gitBranch) $(params.gitRepository)
+
+        # Extract directory name from repository URL (e.g., mta-tackle2-ui.git -> mta-tackle2-ui)
+        REPO_DIR=$(basename $(params.gitRepository) .git)
+        cd "$REPO_DIR"
+
+        echo "Installing dependencies..."
+        npm clean-install --ignore-scripts --no-audit
+        npx cypress install
+
+        cd cypress
+        cp .env.example .env
+
+        echo "Marker: $TEST_MARKER"
+        TEST_TAGS="$(params.testTags)"
+
+        # For upgrade tests, run all spec files filtered only by marker tag
+        if [ -z "$TEST_TAGS" ]; then
+          echo "Running ALL tests with marker: @$TEST_MARKER"
+
+          # Get all spec files from e2e directory
+          ALL_SPEC_FILES=$(find e2e -name "*.test.ts" -type f | tr '\n' ',' | sed 's/,$//')
+
+          if [ -z "$ALL_SPEC_FILES" ]; then
+            echo "ERROR: No test files found in e2e directory"
+            echo "FAILED" > $(results.testStatus.path)
+            exit 1
+          fi
+
+          SPEC_FILES="$ALL_SPEC_FILES"
+          FILE_COUNT=$(echo "$SPEC_FILES" | tr ',' '\n' | wc -l)
+          echo "Running $FILE_COUNT test files filtered by @$TEST_MARKER tag"
+
+          # Only filter by upgrade marker tag
+          export CYPRESS_INCLUDE_TAGS="@$TEST_MARKER"
+          echo "Cypress tags filter: $CYPRESS_INCLUDE_TAGS"
+        else
+          # Tier-filtered mode: find files matching tier tags
+          echo "Running tests with tags: $TEST_TAGS + @$TEST_MARKER"
+          echo "Finding test files matching tags: $TEST_TAGS"
+          ALL_SPEC_FILES=$(node scripts/findTierFiles.mjs "$TEST_TAGS")
+
+          if [ -z "$ALL_SPEC_FILES" ]; then
+            echo "ERROR: No test files found matching tags: $TEST_TAGS"
+            echo "FAILED" > $(results.testStatus.path)
+            exit 1
+          fi
+
+          SPEC_FILES="$ALL_SPEC_FILES"
+          FILE_COUNT=$(echo "$SPEC_FILES" | tr ',' '\n' | wc -l)
+          echo "Running $FILE_COUNT test files filtered by tags: $TEST_TAGS,@$TEST_MARKER"
+
+          # Filter by both tier tags and upgrade marker tag
+          export CYPRESS_INCLUDE_TAGS="$TEST_TAGS,@$TEST_MARKER"
+          echo "Cypress tags filter: $CYPRESS_INCLUDE_TAGS"
+        fi
+
+        echo "Starting Cypress $TEST_MARKER tests..."
+        if npx dotenvx run -- npx cypress run \
+          --spec "$SPEC_FILES" \
+          --config-file cypress.config.ts \
+          --config baseUrl="$BASE_URL",chromeWebSecurity=false,video=false; then
+          echo "✅ $TEST_MARKER Tests PASSED"
+          echo "PASSED" > $(results.testStatus.path)
+        else
+          echo "❌ $TEST_MARKER Tests FAILED"
+          echo "FAILED" > $(results.testStatus.path)
+          exit 1
+        fi

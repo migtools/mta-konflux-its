@@ -194,7 +194,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: fix-dast-kubeconfig-download
+            value: main
           - name: pathInRepo
             value: tasks/run-dast-scan.yaml
 

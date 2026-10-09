@@ -32,12 +32,8 @@ spec:
       description: Test marker to run (pre-upgrade or post-upgrade)
     - name: testTags
       type: string
-      default: "@ci,@tier0,@tier2_A,@tier3_A"
-      description: Comma-separated test tags to include for upgrade tests
-    - name: excludePattern
-      type: string
-      default: "(custom-metrics|jira|proxy|sourcecontrol_crud|maven_crud|repository/git|repository/maven|repository/subversion|export_to_jira|discovery\\.test)"
-      description: Regex pattern for test files to exclude (requires secrets)
+      default: ""
+      description: Comma-separated test tags to include (empty = run all tests matching marker only)
 
   results:
     - name: testStatus
@@ -98,40 +94,49 @@ spec:
         cd cypress
         cp .env.example .env
 
-        echo "Running tests with tags: $(params.testTags)"
         echo "Marker: $TEST_MARKER"
-
-        # Build spec file list from tier tags
         TEST_TAGS="$(params.testTags)"
-        echo "Finding test files matching tags: $TEST_TAGS"
-        ALL_SPEC_FILES=$(node scripts/findTierFiles.mjs "$TEST_TAGS")
 
-        if [ -z "$ALL_SPEC_FILES" ]; then
-          echo "ERROR: No test files found matching tags: $TEST_TAGS"
-          echo "FAILED" > $(results.testStatus.path)
-          exit 1
+        # For upgrade tests, run all spec files filtered only by marker tag
+        if [ -z "$TEST_TAGS" ]; then
+          echo "Running ALL tests with marker: @$TEST_MARKER"
+
+          # Get all spec files from e2e directory
+          ALL_SPEC_FILES=$(find e2e -name "*.test.ts" -type f | tr '\n' ',' | sed 's/,$//')
+
+          if [ -z "$ALL_SPEC_FILES" ]; then
+            echo "ERROR: No test files found in e2e directory"
+            echo "FAILED" > $(results.testStatus.path)
+            exit 1
+          fi
+
+          SPEC_FILES="$ALL_SPEC_FILES"
+          FILE_COUNT=$(echo "$SPEC_FILES" | tr ',' '\n' | wc -l)
+          echo "Running $FILE_COUNT test files filtered by @$TEST_MARKER tag"
+
+          # Only filter by upgrade marker tag
+          export CYPRESS_INCLUDE_TAGS="@$TEST_MARKER"
+          echo "Cypress tags filter: $CYPRESS_INCLUDE_TAGS"
+        else
+          # Tier-filtered mode: find files matching tier tags
+          echo "Running tests with tags: $TEST_TAGS + @$TEST_MARKER"
+          echo "Finding test files matching tags: $TEST_TAGS"
+          ALL_SPEC_FILES=$(node scripts/findTierFiles.mjs "$TEST_TAGS")
+
+          if [ -z "$ALL_SPEC_FILES" ]; then
+            echo "ERROR: No test files found matching tags: $TEST_TAGS"
+            echo "FAILED" > $(results.testStatus.path)
+            exit 1
+          fi
+
+          SPEC_FILES="$ALL_SPEC_FILES"
+          FILE_COUNT=$(echo "$SPEC_FILES" | tr ',' '\n' | wc -l)
+          echo "Running $FILE_COUNT test files filtered by tags: $TEST_TAGS,@$TEST_MARKER"
+
+          # Filter by both tier tags and upgrade marker tag
+          export CYPRESS_INCLUDE_TAGS="$TEST_TAGS,@$TEST_MARKER"
+          echo "Cypress tags filter: $CYPRESS_INCLUDE_TAGS"
         fi
-
-        echo "Found $(echo "$ALL_SPEC_FILES" | tr ',' '\n' | wc -l) files with matching tags"
-
-        # Filter out files requiring secrets
-        echo "Excluding files requiring secrets..."
-        EXCLUDE_PATTERN="$(params.excludePattern)"
-        SPEC_FILES=$(echo "$ALL_SPEC_FILES" | tr ',' '\n' | grep -v -E "$EXCLUDE_PATTERN" | tr '\n' ',' | sed 's/,$//')
-
-        if [ -z "$SPEC_FILES" ]; then
-          echo "ERROR: No test files remaining after filtering secrets"
-          echo "FAILED" > $(results.testStatus.path)
-          exit 1
-        fi
-
-        FILE_COUNT=$(echo "$SPEC_FILES" | tr ',' '\n' | wc -l)
-        echo "Running $FILE_COUNT test files for $TEST_MARKER"
-
-        # cypress-tags plugin filters individual tests within the matched files
-        # Include both tier tags and the upgrade marker tag
-        export CYPRESS_INCLUDE_TAGS="$TEST_TAGS,@$TEST_MARKER"
-        echo "Cypress tags filter: $CYPRESS_INCLUDE_TAGS"
 
         echo "Starting Cypress $TEST_MARKER tests..."
         if npx dotenvx run -- npx cypress run \

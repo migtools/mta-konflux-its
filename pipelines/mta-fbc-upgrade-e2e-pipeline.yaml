@@ -93,7 +93,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: upgrade-pipeline-with-ocpctl-fixes
           - name: pathInRepo
             value: tasks/map-version-to-test-branch.yaml
 
@@ -109,7 +109,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: upgrade-pipeline-with-ocpctl-fixes
           - name: pathInRepo
             value: tasks/map-version-to-test-branch.yaml
 
@@ -127,7 +127,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: upgrade-pipeline-with-ocpctl-fixes
           - name: pathInRepo
             value: tasks/filter-ocp-version.yaml
 
@@ -145,7 +145,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: upgrade-pipeline-with-ocpctl-fixes
           - name: pathInRepo
             value: tasks/extract-operator-nvr.yaml
 
@@ -161,7 +161,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: upgrade-pipeline-with-ocpctl-fixes
           - name: pathInRepo
             value: tasks/verify-image-pullable.yaml
 
@@ -181,7 +181,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: upgrade-pipeline-with-ocpctl-fixes
           - name: pathInRepo
             value: tasks/ocpctl-pool-lease.yaml
 
@@ -200,7 +200,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: upgrade-pipeline-with-ocpctl-fixes
           - name: pathInRepo
             value: tasks/download-kubeconfig.yaml
 
@@ -216,7 +216,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: upgrade-pipeline-with-ocpctl-fixes
           - name: pathInRepo
             value: tasks/cleanup-mta.yaml
 
@@ -235,7 +235,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: upgrade-pipeline-with-ocpctl-fixes
           - name: pathInRepo
             value: tasks/deploy-ga-mta-operator.yaml
 
@@ -256,7 +256,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: upgrade-pipeline-with-ocpctl-fixes
           - name: pathInRepo
             value: tasks/run-upgrade-tests.yaml
 
@@ -281,7 +281,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: upgrade-pipeline-with-ocpctl-fixes
           - name: pathInRepo
             value: tasks/upgrade-mta-operator.yaml
 
@@ -302,7 +302,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: upgrade-pipeline-with-ocpctl-fixes
           - name: pathInRepo
             value: tasks/run-upgrade-tests.yaml
 
@@ -321,7 +321,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: upgrade-pipeline-with-ocpctl-fixes
           - name: pathInRepo
             value: tasks/ocpctl-pool-release.yaml
 
@@ -353,6 +353,6 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: upgrade-pipeline-with-ocpctl-fixes
           - name: pathInRepo
             value: tasks/slack-notification.yaml

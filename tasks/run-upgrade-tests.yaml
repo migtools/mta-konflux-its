@@ -129,7 +129,9 @@ spec:
         echo "Running $FILE_COUNT test files for $TEST_MARKER"
 
         # cypress-tags plugin filters individual tests within the matched files
-        export CYPRESS_INCLUDE_TAGS="$TEST_TAGS"
+        # Include both tier tags and the upgrade marker tag
+        export CYPRESS_INCLUDE_TAGS="$TEST_TAGS,@$TEST_MARKER"
+        echo "Cypress tags filter: $CYPRESS_INCLUDE_TAGS"
 
         echo "Starting Cypress $TEST_MARKER tests..."
         if npx dotenvx run -- npx cypress run \

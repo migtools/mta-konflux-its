@@ -1,0 +1,323 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: mta-fbc-upgrade-e2e-pipeline
+spec:
+  description: |
+    Upgrade testing pipeline for MTA operator.
+    Tests upgrade path from GA version to FBC version.
+
+    Flow:
+    1. Deploy GA version of MTA from certified-operators catalog
+    2. Run pre-upgrade tests
+    3. Upgrade to FBC version being tested
+    4. Run post-upgrade tests
+
+    Uses OCPCTL cluster pools for instant access to pre-provisioned clusters.
+    Finally tasks ensure cluster release and Slack notification even on test failures.
+
+  params:
+    - name: SNAPSHOT
+      description: Application Snapshot JSON
+      type: string
+    - name: poolName
+      description: Name of the cluster pool to lease from
+      type: string
+      default: "ci-sno-pool-1"
+    - name: gaVersion
+      description: GA MTA version to start with (e.g., "8.2")
+      type: string
+      default: "8.2"
+    - name: targetVersion
+      description: Target MTA version after upgrade (e.g., "8.3.0")
+      type: string
+      default: "8.3.0"
+    - name: preUpgradeTestBranch
+      description: Branch of mta-tackle2-ui to use for pre-upgrade tests
+      type: string
+      default: "main"
+    - name: postUpgradeTestBranch
+      description: Branch of mta-tackle2-ui to use for post-upgrade tests
+      type: string
+      default: "main"
+    - name: skipPreUpgradeTests
+      description: Skip pre-upgrade tests
+      type: string
+      default: "false"
+    - name: skipPostUpgradeTests
+      description: Skip post-upgrade tests
+      type: string
+      default: "false"
+
+  results:
+    - name: IMAGE_VERIFICATION
+      description: Pre-flight image pullability check status
+      value: $(tasks.verify-image-pullable.results.verificationStatus)
+    - name: LEASE_STATUS
+      description: Pool cluster lease status
+      value: $(tasks.lease-cluster.results.leaseStatus)
+    - name: CLUSTER_NAME
+      description: Name of the leased cluster
+      value: $(tasks.lease-cluster.results.clusterName)
+    - name: GA_DEPLOYMENT_STATUS
+      description: GA operator deployment status
+      value: $(tasks.deploy-ga-operator.results.deploymentStatus)
+    - name: GA_VERSION_INSTALLED
+      description: Actual GA version installed
+      value: $(tasks.deploy-ga-operator.results.installedVersion)
+    - name: PRE_UPGRADE_TEST_STATUS
+      description: Pre-upgrade test execution result
+      value: $(tasks.run-pre-upgrade-tests.results.testStatus)
+    - name: UPGRADE_STATUS
+      description: Upgrade operation status
+      value: $(tasks.upgrade-operator.results.upgradeStatus)
+    - name: UPGRADE_TYPE
+      description: Type of upgrade performed (Z_STREAM or Y_STREAM)
+      value: $(tasks.upgrade-operator.results.upgradeType)
+    - name: POST_UPGRADE_TEST_STATUS
+      description: Post-upgrade test execution result
+      value: $(tasks.run-post-upgrade-tests.results.testStatus)
+
+  tasks:
+    - name: parse-metadata
+      params:
+        - name: SNAPSHOT
+          value: $(params.SNAPSHOT)
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/konflux-ci/integration-examples
+          - name: revision
+            value: a1a70b0a1cfc96f5216d472fbd60f6b42780b3e5
+          - name: pathInRepo
+            value: tasks/test_metadata.yaml
+
+    - name: filter-ocp-version
+      runAfter:
+        - parse-metadata
+      params:
+        - name: pipelineRunName
+          value: $(context.pipelineRun.name)
+        - name: allowedOcpVersions
+          value: "4.20,4.21,4.22,5.0"
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/filter-ocp-version.yaml
+
+    - name: extract-operator-nvr
+      runAfter:
+        - filter-ocp-version
+      params:
+        - name: snapshotJson
+          value: $(params.SNAPSHOT)
+        - name: pipelineRunName
+          value: $(context.pipelineRun.name)
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/extract-operator-nvr.yaml
+
+    - name: verify-image-pullable
+      runAfter:
+        - extract-operator-nvr
+      params:
+        - name: fbcImage
+          value: $(tasks.parse-metadata.results.component-container-image)
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/verify-image-pullable.yaml
+
+    - name: lease-cluster
+      runAfter:
+        - verify-image-pullable
+      params:
+        - name: poolName
+          value: $(params.poolName)
+        - name: leaseDuration
+          value: "5"
+        - name: purpose
+          value: "MTA FBC Upgrade Testing"
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/ocpctl-pool-lease.yaml
+
+    - name: cleanup-existing-mta
+      runAfter:
+        - lease-cluster
+      params:
+        - name: clusterId
+          value: $(tasks.lease-cluster.results.clusterId)
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/cleanup-mta.yaml
+
+    - name: deploy-ga-operator
+      runAfter:
+        - cleanup-existing-mta
+      params:
+        - name: clusterId
+          value: $(tasks.lease-cluster.results.clusterId)
+        - name: mtaVersion
+          value: $(params.gaVersion)
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/deploy-ga-mta-operator.yaml
+
+    - name: run-pre-upgrade-tests
+      runAfter:
+        - deploy-ga-operator
+      when:
+        - input: "$(params.skipPreUpgradeTests)"
+          operator: in
+          values: ["false"]
+      params:
+        - name: uiRoute
+          value: $(tasks.deploy-ga-operator.results.uiRoute)
+        - name: gitBranch
+          value: $(params.preUpgradeTestBranch)
+        - name: testMarker
+          value: "pre-upgrade"
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/run-upgrade-tests.yaml
+
+    - name: upgrade-operator
+      runAfter:
+        - run-pre-upgrade-tests
+      params:
+        - name: clusterId
+          value: $(tasks.lease-cluster.results.clusterId)
+        - name: sourceVersion
+          value: $(tasks.deploy-ga-operator.results.installedVersion)
+        - name: targetVersion
+          value: $(params.targetVersion)
+        - name: fbcImage
+          value: $(tasks.parse-metadata.results.component-container-image)
+        - name: snapshotJson
+          value: $(params.SNAPSHOT)
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/upgrade-mta-operator.yaml
+
+    - name: run-post-upgrade-tests
+      runAfter:
+        - upgrade-operator
+      when:
+        - input: "$(params.skipPostUpgradeTests)"
+          operator: in
+          values: ["false"]
+      params:
+        - name: uiRoute
+          value: $(tasks.deploy-ga-operator.results.uiRoute)
+        - name: gitBranch
+          value: $(params.postUpgradeTestBranch)
+        - name: testMarker
+          value: "post-upgrade"
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/run-upgrade-tests.yaml
+
+  finally:
+    - name: release-cluster
+      when:
+        - input: "$(tasks.lease-cluster.status)"
+          operator: in
+          values: ["Succeeded"]
+      params:
+        - name: clusterId
+          value: $(tasks.lease-cluster.results.clusterId)
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/ocpctl-pool-release.yaml
+
+    - name: send-slack-notification
+      when:
+        - input: "$(tasks.deploy-ga-operator.status)"
+          operator: in
+          values: ["Succeeded"]
+      params:
+        - name: testStatus
+          value: "$(tasks.run-post-upgrade-tests.status)"
+        - name: dastStatus
+          value: "None"
+        - name: koncurStatus
+          value: "None"
+        - name: operatorNVR
+          value: "$(tasks.extract-operator-nvr.results.operatorNVR)"
+        - name: snapshotJson
+          value: "$(params.SNAPSHOT)"
+        - name: pipelineRunName
+          value: "$(context.pipelineRun.name)"
+        - name: testBranch
+          value: "pre:$(params.preUpgradeTestBranch) post:$(params.postUpgradeTestBranch)"
+        - name: koncurBranch
+          value: "N/A"
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/slack-notification.yaml

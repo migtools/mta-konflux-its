@@ -97,46 +97,30 @@ spec:
         echo "Marker: $TEST_MARKER"
         TEST_TAGS="$(params.testTags)"
 
-        # For upgrade tests, run all spec files filtered only by marker tag
+        # Use findTierFiles.mjs to find spec files containing upgrade marker tags
+        echo "Finding test files with @$TEST_MARKER tag..."
         if [ -z "$TEST_TAGS" ]; then
-          echo "Running ALL tests with marker: @$TEST_MARKER"
-
-          # Get all spec files from e2e directory
-          ALL_SPEC_FILES=$(find e2e -name "*.test.ts" -type f | tr '\n' ',' | sed 's/,$//')
-
-          if [ -z "$ALL_SPEC_FILES" ]; then
-            echo "ERROR: No test files found in e2e directory"
-            echo "FAILED" > $(results.testStatus.path)
-            exit 1
-          fi
-
-          SPEC_FILES="$ALL_SPEC_FILES"
-          FILE_COUNT=$(echo "$SPEC_FILES" | tr ',' '\n' | wc -l)
-          echo "Running $FILE_COUNT test files filtered by @$TEST_MARKER tag"
-
-          # Only filter by upgrade marker tag
-          export CYPRESS_INCLUDE_TAGS="@$TEST_MARKER"
-          echo "Cypress tags filter: $CYPRESS_INCLUDE_TAGS"
+          # Default: find files with upgrade marker only
+          SPEC_FILES=$(node scripts/findTierFiles.mjs "@$TEST_MARKER")
+          CYPRESS_TAGS="@$TEST_MARKER"
         else
-          # Tier-filtered mode: find files matching tier tags
-          echo "Running tests with tags: $TEST_TAGS + @$TEST_MARKER"
-          echo "Finding test files matching tags: $TEST_TAGS"
-          ALL_SPEC_FILES=$(node scripts/findTierFiles.mjs "$TEST_TAGS")
-
-          if [ -z "$ALL_SPEC_FILES" ]; then
-            echo "ERROR: No test files found matching tags: $TEST_TAGS"
-            echo "FAILED" > $(results.testStatus.path)
-            exit 1
-          fi
-
-          SPEC_FILES="$ALL_SPEC_FILES"
-          FILE_COUNT=$(echo "$SPEC_FILES" | tr ',' '\n' | wc -l)
-          echo "Running $FILE_COUNT test files filtered by tags: $TEST_TAGS,@$TEST_MARKER"
-
-          # Filter by both tier tags and upgrade marker tag
-          export CYPRESS_INCLUDE_TAGS="$TEST_TAGS,@$TEST_MARKER"
-          echo "Cypress tags filter: $CYPRESS_INCLUDE_TAGS"
+          # Find files with both tier tags and upgrade marker
+          SPEC_FILES=$(node scripts/findTierFiles.mjs "$TEST_TAGS,@$TEST_MARKER")
+          CYPRESS_TAGS="$TEST_TAGS,@$TEST_MARKER"
         fi
+
+        if [ -z "$SPEC_FILES" ]; then
+          echo "ERROR: No test files found with @$TEST_MARKER tag"
+          echo "FAILED" > $(results.testStatus.path)
+          exit 1
+        fi
+
+        FILE_COUNT=$(echo "$SPEC_FILES" | tr ',' '\n' | wc -l)
+        echo "Found $FILE_COUNT test files containing @$TEST_MARKER tests"
+
+        # Set Cypress tag filter
+        export CYPRESS_INCLUDE_TAGS="$CYPRESS_TAGS"
+        echo "Cypress tags filter: $CYPRESS_INCLUDE_TAGS"
 
         echo "Starting Cypress $TEST_MARKER tests..."
         if npx dotenvx run -- npx cypress run \

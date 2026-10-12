@@ -41,9 +41,9 @@ spec:
     - name: GA_VERSION_INSTALLED
       description: Actual GA version installed
       value: $(tasks.deploy-ga-operator.results.installedVersion)
-    # - name: PRE_UPGRADE_TEST_STATUS
-    #   description: Pre-upgrade test execution result
-    #   value: $(tasks.run-pre-upgrade-tests.results.testStatus)
+    - name: PRE_UPGRADE_TEST_STATUS
+      description: Pre-upgrade test execution result
+      value: $(tasks.run-pre-upgrade-tests.results.testStatus)
     - name: UPGRADE_STATUS
       description: Upgrade operation status
       value: $(tasks.upgrade-operator.results.upgradeStatus)
@@ -69,21 +69,21 @@ spec:
           - name: pathInRepo
             value: tasks/test_metadata.yaml
 
-    # - name: map-pre-upgrade-test-branch
-    #   runAfter:
-    #     - extract-mta-versions
-    #   params:
-    #     - name: mtaVersion
-    #       value: $(tasks.extract-mta-versions.results.gaVersion)
-    #   taskRef:
-    #     resolver: git
-    #     params:
-    #       - name: url
-    #         value: https://github.com/migtools/mta-konflux-its
-    #       - name: revision
-    #         value: upgrade-pipeline-with-ocpctl-fixes
-    #       - name: pathInRepo
-    #         value: tasks/map-version-to-test-branch.yaml
+    - name: map-pre-upgrade-test-branch
+      runAfter:
+        - extract-mta-versions
+      params:
+        - name: mtaVersion
+          value: $(tasks.extract-mta-versions.results.gaVersion)
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: upgrade-pipeline-with-ocpctl-fixes
+          - name: pathInRepo
+            value: tasks/map-version-to-test-branch.yaml
 
     - name: map-post-upgrade-test-branch
       runAfter:
@@ -225,30 +225,34 @@ spec:
           - name: pathInRepo
             value: tasks/deploy-ga-mta-operator.yaml
 
-    # - name: run-pre-upgrade-tests
-    #   runAfter:
-    #     - deploy-ga-operator
-    #     - map-pre-upgrade-test-branch
-    #   params:
-    #     - name: uiRoute
-    #       value: $(tasks.deploy-ga-operator.results.uiRoute)
-    #     - name: gitBranch
-    #       value: $(tasks.map-pre-upgrade-test-branch.results.testBranch)
-    #     - name: testMarker
-    #       value: "pre-upgrade"
-    #   taskRef:
-    #     resolver: git
-    #     params:
-    #       - name: url
-    #         value: https://github.com/migtools/mta-konflux-its
-    #       - name: revision
-    #         value: upgrade-pipeline-with-ocpctl-fixes
-    #       - name: pathInRepo
-    #         value: tasks/run-upgrade-tests.yaml
+    - name: run-pre-upgrade-tests
+      runAfter:
+        - deploy-ga-operator
+        - map-pre-upgrade-test-branch
+      params:
+        - name: uiRoute
+          value: $(tasks.deploy-ga-operator.results.uiRoute)
+        - name: gitBranch
+          value: $(tasks.map-pre-upgrade-test-branch.results.testBranch)
+        - name: testMarker
+          value: "pre-upgrade"
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: upgrade-pipeline-with-ocpctl-fixes
+          - name: pathInRepo
+            value: tasks/run-upgrade-tests.yaml
 
     - name: upgrade-operator
       runAfter:
-        - deploy-ga-operator
+        - run-pre-upgrade-tests
+      when:
+        - input: "$(tasks.run-pre-upgrade-tests.results.testStatus)"
+          operator: in
+          values: ["PASSED", "FAILED"]
       params:
         - name: clusterId
           value: $(tasks.lease-cluster.results.clusterId)
@@ -329,7 +333,7 @@ spec:
         - name: pipelineRunName
           value: "$(context.pipelineRun.name)"
         - name: testBranch
-          value: "post:$(tasks.map-post-upgrade-test-branch.results.testBranch)"
+          value: "pre:$(tasks.map-pre-upgrade-test-branch.results.testBranch) post:$(tasks.map-post-upgrade-test-branch.results.testBranch)"
         - name: koncurBranch
           value: "N/A"
       taskRef:

@@ -356,7 +356,7 @@ spec:
 
         # Wait for Tackle CR to be successful
         echo "Waiting for Tackle CR to be successful..."
-        oc wait --namespace "$NAMESPACE" --for=condition=Successful --timeout=600s tackles.tackle.konveyor.io/tackle || true
+        oc wait --namespace "$NAMESPACE" --for=condition=Successful --timeout=600s tackles.tackle.konveyor.io/mta || true
 
         echo ""
         echo "======================================"

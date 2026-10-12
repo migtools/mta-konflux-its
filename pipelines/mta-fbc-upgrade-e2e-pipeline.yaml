@@ -249,6 +249,10 @@ spec:
     - name: upgrade-operator
       runAfter:
         - run-pre-upgrade-tests
+      when:
+        - input: "$(tasks.run-pre-upgrade-tests.status)"
+          operator: in
+          values: ["Succeeded", "Failed"]
       params:
         - name: clusterId
           value: $(tasks.lease-cluster.results.clusterId)
@@ -274,6 +278,10 @@ spec:
       runAfter:
         - upgrade-operator
         - map-post-upgrade-test-branch
+      when:
+        - input: "$(tasks.upgrade-operator.status)"
+          operator: in
+          values: ["Succeeded", "Failed"]
       params:
         - name: uiRoute
           value: $(tasks.deploy-ga-operator.results.uiRoute)

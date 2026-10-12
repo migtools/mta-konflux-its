@@ -92,7 +92,7 @@ spec:
         echo "MTA UI URL: $BASE_URL"
         echo "======================================"
 
-        echo "$TEST_MARKER" > $(results.testMarker.path)
+        echo -n "$TEST_MARKER" > $(results.testMarker.path)
 
         echo "Cloning tackle2-ui repository..."
         cd /tmp
@@ -126,8 +126,8 @@ spec:
 
         if [ -z "$SPEC_FILES" ]; then
           echo "ERROR: No test files found with @$TEST_MARKER tag"
-          echo "FAILED" > $(results.testStatus.path)
-          echo "$TEST_MARKER" > $(results.testMarker.path)
+          echo -n "FAILED" > $(results.testStatus.path)
+          echo -n "$TEST_MARKER" > $(results.testMarker.path)
           exit 0
         fi
 
@@ -144,10 +144,10 @@ spec:
           --config-file cypress.config.ts \
           --config baseUrl="$BASE_URL",chromeWebSecurity=false,video=false; then
           echo "✅ $TEST_MARKER Tests PASSED"
-          echo "PASSED" > $(results.testStatus.path)
+          echo -n "PASSED" > $(results.testStatus.path)
         else
           echo "❌ $TEST_MARKER Tests FAILED"
-          echo "FAILED" > $(results.testStatus.path)
+          echo -n "FAILED" > $(results.testStatus.path)
         fi
 
         # Always exit 0 so the task succeeds and results are available to next tasks

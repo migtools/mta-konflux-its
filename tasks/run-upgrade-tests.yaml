@@ -79,7 +79,6 @@ spec:
       script: |
         #!/bin/bash
         set -euo pipefail
-        trap 'echo "FAILED" > $(results.testStatus.path)' ERR
 
         echo "Installing curl and jq for test utilities..."
         apt-get update -qq && apt-get install -y -qq curl jq > /dev/null 2>&1
@@ -128,7 +127,8 @@ spec:
         if [ -z "$SPEC_FILES" ]; then
           echo "ERROR: No test files found with @$TEST_MARKER tag"
           echo "FAILED" > $(results.testStatus.path)
-          exit 1
+          echo "$TEST_MARKER" > $(results.testMarker.path)
+          exit 0
         fi
 
         FILE_COUNT=$(echo "$SPEC_FILES" | tr ',' '\n' | wc -l)
@@ -148,5 +148,7 @@ spec:
         else
           echo "❌ $TEST_MARKER Tests FAILED"
           echo "FAILED" > $(results.testStatus.path)
-          exit 1
         fi
+
+        # Always exit 0 so the task succeeds and results are available to next tasks
+        exit 0

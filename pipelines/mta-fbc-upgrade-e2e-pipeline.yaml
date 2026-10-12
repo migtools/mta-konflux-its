@@ -250,9 +250,9 @@ spec:
       runAfter:
         - run-pre-upgrade-tests
       when:
-        - input: "$(tasks.run-pre-upgrade-tests.status)"
+        - input: "$(tasks.run-pre-upgrade-tests.results.testStatus)"
           operator: in
-          values: ["Succeeded", "Failed"]
+          values: ["PASSED", "FAILED"]
       params:
         - name: clusterId
           value: $(tasks.lease-cluster.results.clusterId)

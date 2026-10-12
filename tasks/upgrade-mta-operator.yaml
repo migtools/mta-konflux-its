@@ -201,78 +201,84 @@ spec:
         PREUPGRADE_UI_POD=$(oc get pods -n "$NAMESPACE" -l app.kubernetes.io/name=mta-ui -o jsonpath="{.items[0].metadata.name}" 2>/dev/null || echo "")
         echo "Pre-upgrade UI pod: $PREUPGRADE_UI_POD"
 
-        # For Y-stream upgrades, we need to:
-        # 1. Create FBC catalog source
-        # 2. Update subscription channel
-        # 3. Approve install plan
-        if [ "$UPGRADE_TYPE" = "Y_STREAM" ]; then
-          echo ""
-          echo "Step 1: Creating FBC CatalogSource for target version..."
+        # For upgrade testing, always create FBC catalog source since target version is in the FBC snapshot
+        # For Y-stream, also need to update subscription channel
+        echo ""
+        echo "Step 1: Creating FBC CatalogSource for target version..."
 
-          # Auto-detect channel from application name if snapshot provided
-          CHANNEL_NAME=""
-          if [ -n "$SNAPSHOT_JSON" ]; then
-            APP_NAME=$(echo "$SNAPSHOT_JSON" | grep -o '"application":"[^"]*"' | cut -d'"' -f4 || echo "")
-            if [ -n "$APP_NAME" ]; then
-              # Extract version: fbc-mta-8-3 → 8-3 → 8.3
-              VERSION=$(echo "$APP_NAME" | grep -oE '[0-9]+-[0-9]+' | tr '-' '.')
-              CHANNEL_NAME="stable-v${VERSION}"
-              echo "Auto-detected channel: $CHANNEL_NAME (from application: $APP_NAME)"
-            fi
+        # Auto-detect channel from application name if snapshot provided
+        CHANNEL_NAME=""
+        if [ -n "$SNAPSHOT_JSON" ]; then
+          APP_NAME=$(echo "$SNAPSHOT_JSON" | grep -o '"application":"[^"]*"' | cut -d'"' -f4 || echo "")
+          if [ -n "$APP_NAME" ]; then
+            # Extract version: fbc-mta-8-3 → 8-3 → 8.3
+            VERSION=$(echo "$APP_NAME" | grep -oE '[0-9]+-[0-9]+' | tr '-' '.')
+            CHANNEL_NAME="stable-v${VERSION}"
+            echo "Auto-detected channel: $CHANNEL_NAME (from application: $APP_NAME)"
           fi
+        fi
 
-          if [ -z "$CHANNEL_NAME" ]; then
-            CHANNEL_NAME="stable-v${TARGET_MAJOR_MINOR}"
-            echo "Using channel: $CHANNEL_NAME (from target version)"
-          fi
+        if [ -z "$CHANNEL_NAME" ]; then
+          CHANNEL_NAME="stable-v${TARGET_MAJOR_MINOR}"
+          echo "Using channel: $CHANNEL_NAME (from target version)"
+        fi
 
-          # Delete old FBC catalog if exists
-          oc delete catalogsource mta-konflux-catalog -n openshift-marketplace --ignore-not-found 2>/dev/null || true
-          sleep 5
+        # Delete old FBC catalog if exists
+        oc delete catalogsource mta-konflux-catalog -n openshift-marketplace --ignore-not-found 2>/dev/null || true
+        sleep 5
 
-          cat <<EOF | oc apply -f -
-          apiVersion: operators.coreos.com/v1alpha1
-          kind: CatalogSource
-          metadata:
-            name: mta-konflux-catalog
-            namespace: openshift-marketplace
-          spec:
-            sourceType: grpc
-            image: $FBC_IMAGE
-            displayName: MTA Konflux Catalog
-            publisher: Red Hat
-            grpcPodConfig:
-              securityContextConfig: restricted
-              extractContent:
-                catalogDir: /configs
-                cacheDir: /tmp/cache
-            updateStrategy:
-              registryPoll:
-                interval: 10m
+        cat <<EOF | oc apply -f -
+        apiVersion: operators.coreos.com/v1alpha1
+        kind: CatalogSource
+        metadata:
+          name: mta-konflux-catalog
+          namespace: openshift-marketplace
+        spec:
+          sourceType: grpc
+          image: $FBC_IMAGE
+          displayName: MTA Konflux Catalog
+          publisher: Red Hat
+          grpcPodConfig:
+            securityContextConfig: restricted
+            extractContent:
+              catalogDir: /configs
+              cacheDir: /tmp/cache
+          updateStrategy:
+            registryPoll:
+              interval: 10m
         EOF
 
-          echo "Waiting for CatalogSource to be ready..."
-          for i in {1..60}; do
-            STATE=$(oc get catalogsource mta-konflux-catalog -n openshift-marketplace -o jsonpath='{.status.connectionState.lastObservedState}' 2>/dev/null || echo "")
-            if [ "$STATE" = "READY" ]; then
-              echo "✅ CatalogSource READY"
-              break
-            fi
-            if [ $i -eq 60 ]; then
-              echo "❌ CatalogSource failed to become ready"
-              echo "FAILED" > $(results.upgradeStatus.path)
-              exit 1
-            fi
-            sleep 5
-          done
+        echo "Waiting for CatalogSource to be ready..."
+        for i in {1..60}; do
+          STATE=$(oc get catalogsource mta-konflux-catalog -n openshift-marketplace -o jsonpath='{.status.connectionState.lastObservedState}' 2>/dev/null || echo "")
+          if [ "$STATE" = "READY" ]; then
+            echo "✅ CatalogSource READY"
+            break
+          fi
+          if [ $i -eq 60 ]; then
+            echo "❌ CatalogSource failed to become ready"
+            echo "FAILED" > $(results.upgradeStatus.path)
+            exit 1
+          fi
+          sleep 5
+        done
 
-          echo ""
-          echo "Step 2: Updating subscription channel to $CHANNEL_NAME..."
+        echo ""
+        echo "Step 2: Updating subscription to use FBC catalog..."
+
+        # For upgrade testing, always switch to FBC catalog since target is in the FBC snapshot
+        if [ "$UPGRADE_TYPE" = "Y_STREAM" ]; then
+          # Y-stream: update both channel and source
+          echo "Y-stream upgrade: updating channel to $CHANNEL_NAME and source to mta-konflux-catalog"
           oc patch subscription mta-operator -n "$NAMESPACE" --type=merge -p "{\"spec\":{\"channel\":\"$CHANNEL_NAME\",\"source\":\"mta-konflux-catalog\"}}"
-
-          echo "Waiting for new install plan to be created..."
-          sleep 60
+        else
+          # Z-stream: only update source (keep same channel)
+          echo "Z-stream upgrade: updating source to mta-konflux-catalog (keeping same channel)"
+          oc patch subscription mta-operator -n "$NAMESPACE" --type=merge -p '{"spec":{"source":"mta-konflux-catalog"}}'
         fi
+
+        echo "Waiting for new install plan to be created..."
+        sleep 60
 
         echo ""
         echo "Step 3: Approving install plan for $TARGET_VERSION..."

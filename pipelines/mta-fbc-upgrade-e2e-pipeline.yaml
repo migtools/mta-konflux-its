@@ -278,10 +278,6 @@ spec:
       runAfter:
         - upgrade-operator
         - map-post-upgrade-test-branch
-      when:
-        - input: "$(tasks.upgrade-operator.status)"
-          operator: in
-          values: ["Succeeded", "Failed"]
       params:
         - name: uiRoute
           value: $(tasks.deploy-ga-operator.results.uiRoute)

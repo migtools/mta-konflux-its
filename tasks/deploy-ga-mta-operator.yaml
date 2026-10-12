@@ -93,7 +93,7 @@ spec:
         NAMESPACE="$(params.operatorNamespace)"
         CHANNEL_NAME="stable-v${MTA_VERSION}"
 
-        echo "Installing GA MTA Operator version $MTA_VERSION from certified-operators catalog"
+        echo "Installing GA MTA Operator version $MTA_VERSION from redhat-operators catalog"
         echo "Channel: $CHANNEL_NAME"
 
         oc create namespace "$NAMESPACE" --dry-run=client -o yaml | oc apply -f -
@@ -127,7 +127,7 @@ spec:
           channel: $CHANNEL_NAME
           installPlanApproval: Automatic
           name: $PACKAGE_NAME
-          source: certified-operators
+          source: redhat-operators
           sourceNamespace: openshift-marketplace
         EOF
 

@@ -265,33 +265,26 @@ spec:
 
         echo ""
         echo "Step 2: Updating subscription to use FBC catalog..."
+        # Always switch to FBC catalog since target version is in the FBC snapshot
+        oc patch subscription mta-operator -n "$NAMESPACE" --type=merge -p '{"spec":{"source":"mta-konflux-catalog"}}'
 
-        # For upgrade testing, always switch to FBC catalog since target is in the FBC snapshot
-        if [ "$UPGRADE_TYPE" = "Y_STREAM" ]; then
-          # Y-stream: update both channel and source
-          echo "Y-stream upgrade: updating channel to $CHANNEL_NAME and source to mta-konflux-catalog"
-          oc patch subscription mta-operator -n "$NAMESPACE" --type=merge -p "{\"spec\":{\"channel\":\"$CHANNEL_NAME\",\"source\":\"mta-konflux-catalog\"}}"
+        # Perform upgrade following mta_upgrade.sh logic
+        if [ "$UPGRADE_TYPE" = "Z_STREAM" ]; then
+          echo "Z stream upgrade in progress."
         else
-          # Z-stream: only update source (keep same channel)
-          echo "Z-stream upgrade: updating source to mta-konflux-catalog (keeping same channel)"
-          oc patch subscription mta-operator -n "$NAMESPACE" --type=merge -p '{"spec":{"source":"mta-konflux-catalog"}}'
+          UPGRADE_CHANNEL_VERSION=$(echo "$TARGET_VERSION" | cut -d. -f1-2)
+          echo "Y stream upgrade in progress"
+          oc patch subscription mta-operator -n "$NAMESPACE" --type=merge -p '{"spec":{"channel":"stable-v'"$UPGRADE_CHANNEL_VERSION"'"}}'
+          sleep 60
         fi
-
-        echo "Waiting for new install plan to be created..."
-        sleep 60
 
         echo ""
         echo "Step 3: Approving install plan for $TARGET_VERSION..."
 
-        # Find and approve install plan
+        # Wait for install plan and approve (using same logic as mta_upgrade.sh)
         INSTALL_PLAN=""
         for i in {1..30}; do
-          INSTALL_PLAN=$(oc get installplan -n "$NAMESPACE" -o jsonpath="{.items[?(@.spec.clusterServiceVersionNames[*] =~ /mta-operator.v$TARGET_VERSION.*/)].metadata.name}" 2>/dev/null || echo "")
-
-          if [ -z "$INSTALL_PLAN" ]; then
-            # Fallback: try to find any pending install plan
-            INSTALL_PLAN=$(oc get installplan -n "$NAMESPACE" -o jsonpath='{.items[?(@.spec.approved==false)].metadata.name}' 2>/dev/null | awk '{print $1}' || echo "")
-          fi
+          INSTALL_PLAN=$(oc get installplan -n "$NAMESPACE" 2>/dev/null | grep -E "mta-operator.v$TARGET_VERSION" | awk '{ print $1 }' || echo "")
 
           if [ -n "$INSTALL_PLAN" ]; then
             echo "Found install plan: $INSTALL_PLAN"
@@ -299,7 +292,7 @@ spec:
           fi
 
           if [ $i -eq 30 ]; then
-            echo "❌ No install plan found after 2.5 minutes"
+            echo "❌ No install plan found for version $TARGET_VERSION after 2.5 minutes"
             echo "Available install plans:"
             oc get installplan -n "$NAMESPACE" 2>/dev/null || true
             echo "FAILED" > $(results.upgradeStatus.path)
@@ -310,7 +303,6 @@ spec:
           sleep 5
         done
 
-        echo "Approving install plan: $INSTALL_PLAN"
         oc patch installplan "$INSTALL_PLAN" -n "$NAMESPACE" --type merge --patch '{"spec":{"approved":true}}'
 
         echo ""

@@ -320,12 +320,18 @@ spec:
           operator: in
           values: ["Succeeded"]
       params:
-        - name: testStatus
+        - name: sourceVersion
+          value: "$(tasks.deploy-ga-operator.results.installedVersion)"
+        - name: targetVersion
+          value: "$(tasks.extract-mta-versions.results.targetVersion)"
+        - name: upgradeType
+          value: "$(tasks.upgrade-operator.results.upgradeType)"
+        - name: preUpgradeTestStatus
+          value: "$(tasks.run-pre-upgrade-tests.status)"
+        - name: upgradeStatus
+          value: "$(tasks.upgrade-operator.status)"
+        - name: postUpgradeTestStatus
           value: "$(tasks.run-post-upgrade-tests.status)"
-        - name: dastStatus
-          value: "None"
-        - name: koncurStatus
-          value: "None"
         - name: operatorNVR
           value: "$(tasks.extract-operator-nvr.results.operatorNVR)"
         - name: snapshotJson
@@ -334,8 +340,6 @@ spec:
           value: "$(context.pipelineRun.name)"
         - name: testBranch
           value: "pre:$(tasks.map-pre-upgrade-test-branch.results.testBranch) post:$(tasks.map-post-upgrade-test-branch.results.testBranch)"
-        - name: koncurBranch
-          value: "N/A"
       taskRef:
         resolver: git
         params:
@@ -344,4 +348,4 @@ spec:
           - name: revision
             value: upgrade-pipeline-with-ocpctl-fixes
           - name: pathInRepo
-            value: tasks/slack-notification.yaml
+            value: tasks/slack-notification-upgrade.yaml

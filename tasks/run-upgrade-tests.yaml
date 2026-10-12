@@ -34,6 +34,10 @@ spec:
       type: string
       default: ""
       description: Comma-separated test tags to include (empty = run all tests matching marker only)
+    - name: testCredentialsSecret
+      type: string
+      default: "test-credentials"
+      description: Name of the secret containing test credentials (git-user, git-password)
 
   results:
     - name: testStatus
@@ -60,6 +64,18 @@ spec:
           value: /tmp/.cache/npm
         - name: NODE_TLS_REJECT_UNAUTHORIZED
           value: "0"
+        - name: CYPRESS_GIT_USER
+          valueFrom:
+            secretKeyRef:
+              name: $(params.testCredentialsSecret)
+              key: git-user
+              optional: true
+        - name: CYPRESS_GIT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: $(params.testCredentialsSecret)
+              key: git-password
+              optional: true
       script: |
         #!/bin/bash
         set -euo pipefail

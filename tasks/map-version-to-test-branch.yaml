@@ -1,0 +1,71 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: map-version-to-test-branch
+  labels:
+    app.kubernetes.io/version: "0.1"
+  annotations:
+    tekton.dev/pipelines.minVersion: "0.12.1"
+    tekton.dev/categories: Utility
+    tekton.dev/tags: mta,version,mapping
+    tekton.dev/displayName: "Map MTA Version to Test Branch"
+spec:
+  description: >-
+    Maps MTA version to the corresponding mta-tackle2-ui test branch.
+
+    Version to Branch Mapping:
+    - 8.0.x → release-0.8
+    - 8.1.x → release-0.9
+    - 8.2.x → release-0.10
+    - 8.3.x → release-0.11
+
+    When adding support for new MTA versions, update the mapping in this task.
+
+  params:
+    - name: mtaVersion
+      type: string
+      description: MTA version (e.g., "8.2.0", "8.3", "8.2.2")
+
+  results:
+    - name: testBranch
+      description: Corresponding mta-tackle2-ui test branch
+
+  steps:
+    - name: map-version
+      image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+      script: |
+        #!/bin/bash
+        set -euo pipefail
+
+        MTA_VERSION="$(params.mtaVersion)"
+
+        # Extract major.minor version (e.g., 8.2.0 → 8.2, 8.3 → 8.3)
+        MAJOR_MINOR=$(echo "$MTA_VERSION" | cut -d. -f1-2)
+
+        echo "MTA version: $MTA_VERSION"
+        echo "Extracted major.minor: $MAJOR_MINOR"
+
+        # Map version to test branch
+        # IMPORTANT: Update this mapping when adding support for new MTA versions
+        case "$MAJOR_MINOR" in
+          8.0)
+            TEST_BRANCH="release-0.8"
+            ;;
+          8.1)
+            TEST_BRANCH="release-0.9"
+            ;;
+          8.2)
+            TEST_BRANCH="release-0.10"
+            ;;
+          8.3)
+            TEST_BRANCH="release-0.11"
+            ;;
+          *)
+            echo "❌ No test branch mapping found for MTA version $MAJOR_MINOR"
+            echo "   Update tasks/map-version-to-test-branch.yaml to add mapping for this version"
+            exit 1
+            ;;
+        esac
+
+        echo "Mapped to test branch: $TEST_BRANCH"
+        echo -n "$TEST_BRANCH" > $(results.testBranch.path)

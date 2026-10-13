@@ -1,0 +1,53 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: extract-mta-versions
+  labels:
+    app.kubernetes.io/version: "0.1"
+  annotations:
+    tekton.dev/pipelines.minVersion: "0.12.1"
+    tekton.dev/categories: Utility
+    tekton.dev/tags: mta,version,metadata
+    tekton.dev/displayName: "Extract MTA Versions"
+spec:
+  description: >-
+    Extract MTA versions from snapshot for upgrade testing.
+    Derives gaVersion from application name and targetVersion from operator NVR.
+
+  params:
+    - name: snapshotJson
+      type: string
+      description: Konflux snapshot JSON
+    - name: operatorNVR
+      type: string
+      description: Operator NVR (e.g., mta-operator-container-8.2.3-1)
+
+  results:
+    - name: gaVersion
+      description: GA version to start upgrade from (e.g., "8.2")
+    - name: targetVersion
+      description: Target FBC version to upgrade to (e.g., "8.2.3")
+
+  steps:
+    - name: extract-versions
+      image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+      script: |
+        #!/bin/bash
+        set -euo pipefail
+
+        SNAPSHOT_JSON='$(params.snapshotJson)'
+        OPERATOR_NVR="$(params.operatorNVR)"
+
+        # Extract application name from snapshot
+        APP_NAME=$(echo "$SNAPSHOT_JSON" | grep -o '"application":"[^"]*"' | cut -d'"' -f4)
+        echo "Application: $APP_NAME"
+
+        # Extract major.minor from application name (fbc-mta-8-2 → 8.2)
+        GA_VERSION=$(echo "$APP_NAME" | grep -oE '[0-9]+-[0-9]+' | tr '-' '.')
+        echo "GA version: $GA_VERSION"
+        echo -n "$GA_VERSION" > $(results.gaVersion.path)
+
+        # Extract version from NVR (mta-operator-container-8.2.3-1 → 8.2.3)
+        TARGET_VERSION=$(echo "$OPERATOR_NVR" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+        echo "Target version: $TARGET_VERSION"
+        echo -n "$TARGET_VERSION" > $(results.targetVersion.path)

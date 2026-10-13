@@ -67,13 +67,19 @@ spec:
       script: |
         #!/bin/bash
         set -euo pipefail
+
+        echo "Downloading kubeconfig for cluster: $(params.clusterId)"
+
         URL=$(curl -s --insecure -H "Authorization: Bearer $OCPCTL_API_KEY" \
           "$(params.ocpctlUrl)/clusters/$(params.clusterId)/kubeconfig/download-url" \
           | grep -o '"download_url":"[^"]*"' | cut -d'"' -f4 | sed 's/\\u0026/\&/g')
-        [[ "$URL" == /api/* ]] && \
+
+        if [[ "$URL" == /api/* ]]; then
           curl -s --insecure -H "Authorization: Bearer $OCPCTL_API_KEY" \
-            -o /credentials/kubeconfig "https://ocpctl.apps.cnv2.engineering.redhat.com${URL}" || \
+            -o /credentials/kubeconfig "https://ocpctl.apps.cnv2.engineering.redhat.com${URL}"
+        else
           curl -s --insecure -o /credentials/kubeconfig "$URL"
+        fi
 
     - name: install-ga-operator
       image: quay.io/openshift/origin-cli:4.21

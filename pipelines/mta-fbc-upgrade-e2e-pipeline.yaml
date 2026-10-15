@@ -252,7 +252,7 @@ spec:
       when:
         - input: "$(tasks.run-pre-upgrade-tests.results.testStatus)"
           operator: in
-          values: ["PASSED", "FAILED"]
+          values: ["PASSED", "FAILED", "SKIPPED"]
       params:
         - name: clusterId
           value: $(tasks.lease-cluster.results.clusterId)

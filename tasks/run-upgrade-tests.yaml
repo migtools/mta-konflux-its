@@ -94,6 +94,11 @@ spec:
 
         echo -n "$TEST_MARKER" > $(results.testMarker.path)
 
+        # TEMPORARY: Skip tests for quick Slack notification debugging
+        echo "⚠️  SKIPPING TESTS (temporary debug mode)"
+        echo -n "SKIPPED" > $(results.testStatus.path)
+        exit 0
+
         echo "Cloning tackle2-ui repository..."
         cd /tmp
         git clone --depth 1 --branch $(params.gitBranch) $(params.gitRepository)

@@ -197,18 +197,6 @@ spec:
           echo "✓ curl already installed"
         fi
 
-        # Debug: Print the actual JSON being sent
-        echo "=== DEBUG: Checking for newlines in version strings ==="
-        echo "Source version: [$SOURCE_VERSION]"
-        echo "Target version: [$TARGET_VERSION]"
-        echo "Source length: ${#SOURCE_VERSION}"
-        echo "Target length: ${#TARGET_VERSION}"
-        echo -n "$SOURCE_VERSION" | od -An -tx1
-        echo -n "$TARGET_VERSION" | od -An -tx1
-        echo "=== DEBUG: Full JSON message ==="
-        echo "$MESSAGE"
-        echo "==========================="
-
         # Send to Slack
         echo "Sending notification to Slack..."
         HTTP_CODE=$(curl -X POST -H 'Content-type: application/json' \

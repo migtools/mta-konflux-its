@@ -195,7 +195,7 @@ spec:
           echo "Upgrade type: Y-stream ($SOURCE_MAJOR_MINOR → $TARGET_MAJOR_MINOR)"
         fi
 
-        echo "$UPGRADE_TYPE" > $(results.upgradeType.path)
+        echo -n "$UPGRADE_TYPE" > $(results.upgradeType.path)
 
         # Get current UI pod name for monitoring pod bounce after upgrade
         PREUPGRADE_UI_POD=$(oc get pods -n "$NAMESPACE" -l app.kubernetes.io/name=mta-ui -o jsonpath="{.items[0].metadata.name}" 2>/dev/null || echo "")

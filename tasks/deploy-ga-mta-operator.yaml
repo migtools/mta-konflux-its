@@ -152,7 +152,7 @@ spec:
 
               # Extract actual version from CSV name (e.g., mta-operator.v8.2.0 → 8.2.0)
               INSTALLED_VERSION=$(echo "$CSV" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "$MTA_VERSION.0")
-              echo "$INSTALLED_VERSION" > $(results.installedVersion.path)
+              echo -n "$INSTALLED_VERSION" > $(results.installedVersion.path)
               echo "Installed version: $INSTALLED_VERSION"
               break
             fi

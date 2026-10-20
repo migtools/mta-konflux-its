@@ -1,0 +1,227 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: mta-multicloud-tier0-pipeline
+spec:
+  description: |
+    MTA Tier-0 UI Tests on Multiple Cloud Platforms
+
+    Provisions a fresh cluster (ARO/ROSA/ROSA-STS/OCP-AWS), deploys MTA operator
+    from Konflux snapshot, runs tier-0 UI tests, and destroys the cluster.
+
+    Can be triggered from Slack with NVR, snapshot name, or latest snapshot.
+
+  params:
+    - name: clusterType
+      description: Cluster type (aro, rosa, rosa-sts, ocp-aws)
+      type: string
+      default: "aro"
+    - name: nvrOrSnapshot
+      description: NVR, snapshot name, or empty for latest
+      type: string
+      default: ""
+    - name: application
+      description: Konflux application name
+      type: string
+      default: "fbc-mta-8-3"
+    - name: triggeredBy
+      description: User who triggered the test
+      type: string
+      default: "unknown"
+
+  results:
+    - name: SNAPSHOT_NAME
+      description: Resolved snapshot name
+      value: $(tasks.resolve-snapshot.results.snapshotName)
+    - name: OPERATOR_NVR
+      description: Operator NVR tested
+      value: $(tasks.resolve-snapshot.results.operatorNVR)
+    - name: CLUSTER_TYPE
+      description: Cluster type tested
+      value: $(params.clusterType)
+    - name: CLUSTER_ID
+      description: Cluster ID
+      value: $(tasks.provision-cluster.results.clusterId)
+    - name: TEST_STATUS
+      description: Tier-0 test result (PASSED/FAILED)
+      value: $(tasks.run-tier0-tests.results.testStatus)
+
+  tasks:
+    - name: resolve-snapshot
+      params:
+        - name: nvrOrSnapshot
+          value: $(params.nvrOrSnapshot)
+        - name: application
+          value: $(params.application)
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/multicloud/resolve-snapshot-from-nvr.yaml
+
+    - name: map-cluster-config
+      params:
+        - name: clusterType
+          value: $(params.clusterType)
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/multicloud/map-cluster-profile.yaml
+
+    - name: provision-cluster
+      runAfter:
+        - resolve-snapshot
+        - map-cluster-config
+      params:
+        - name: clusterName
+          value: "$(params.clusterType)-tier0-$(tasks.resolve-snapshot.results.snapshotName)"
+        - name: profile
+          value: $(tasks.map-cluster-config.results.profile)
+        - name: version
+          value: "4.22"
+        - name: region
+          value: $(tasks.map-cluster-config.results.region)
+        - name: waitTimeout
+          value: $(tasks.map-cluster-config.results.waitTimeout)
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/ocpctl-provision.yaml
+
+    - name: extract-fbc-image
+      runAfter:
+        - resolve-snapshot
+      params:
+        - name: snapshotJson
+          value: $(tasks.resolve-snapshot.results.snapshotJson)
+      taskSpec:
+        params:
+          - name: snapshotJson
+        results:
+          - name: fbcImage
+        steps:
+          - name: extract
+            image: registry.access.redhat.com/ubi9/ubi-minimal
+            script: |
+              #!/bin/bash
+              set -euo pipefail
+
+              # Extract FBC catalog image from snapshot
+              FBC_IMAGE=$(echo '$(params.snapshotJson)' | jq -r '
+                .spec.components[] |
+                select(.name == "mta-operator-bundle") |
+                .containerImage
+              ')
+
+              echo "FBC Image: $FBC_IMAGE"
+              echo -n "$FBC_IMAGE" > $(results.fbcImage.path)
+
+    - name: deploy-mta-operator
+      runAfter:
+        - provision-cluster
+        - extract-fbc-image
+      when:
+        - input: "$(tasks.provision-cluster.results.provisionStatus)"
+          operator: in
+          values: ["READY"]
+      params:
+        - name: clusterId
+          value: $(tasks.provision-cluster.results.clusterId)
+        - name: fbcImage
+          value: $(tasks.extract-fbc-image.results.fbcImage)
+        - name: snapshotJson
+          value: $(tasks.resolve-snapshot.results.snapshotJson)
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/deploy-mta-operator.yaml
+
+    - name: run-tier0-tests
+      runAfter:
+        - deploy-mta-operator
+      params:
+        - name: uiRoute
+          value: $(tasks.deploy-mta-operator.results.uiRoute)
+        - name: testTags
+          value: "@tier0"
+        - name: gitBranch
+          value: "main"
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/run-ui-e2e-tests.yaml
+
+  finally:
+    - name: destroy-cluster
+      when:
+        - input: "$(tasks.provision-cluster.status)"
+          operator: in
+          values: ["Succeeded"]
+      params:
+        - name: clusterId
+          value: $(tasks.provision-cluster.results.clusterId)
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/ocpctl-pool-release.yaml
+
+    - name: send-slack-notification
+      when:
+        - input: "$(tasks.run-tier0-tests.status)"
+          operator: in
+          values: ["Succeeded", "Failed"]
+      params:
+        - name: testStatus
+          value: $(tasks.run-tier0-tests.status)
+        - name: clusterType
+          value: $(params.clusterType)
+        - name: clusterTypeLabel
+          value: $(tasks.map-cluster-config.results.clusterTypeLabel)
+        - name: snapshotName
+          value: $(tasks.resolve-snapshot.results.snapshotName)
+        - name: operatorNVR
+          value: $(tasks.resolve-snapshot.results.operatorNVR)
+        - name: clusterId
+          value: $(tasks.provision-cluster.results.clusterId)
+        - name: pipelineRunName
+          value: $(context.pipelineRun.name)
+        - name: triggeredBy
+          value: $(params.triggeredBy)
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/multicloud/slack-notification-tier0.yaml

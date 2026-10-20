@@ -1,0 +1,141 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: resolve-snapshot-from-nvr
+  labels:
+    app.kubernetes.io/version: "0.1"
+  annotations:
+    tekton.dev/pipelines.minVersion: "0.12.1"
+    tekton.dev/categories: Utility
+    tekton.dev/tags: konflux,snapshot,nvr
+    tekton.dev/displayName: "Resolve Snapshot from NVR or Name"
+spec:
+  description: >-
+    Resolves a Konflux snapshot from NVR, snapshot name, or gets latest snapshot.
+    Supports flexible input: NVR string, snapshot name, or empty for latest.
+
+  params:
+    - name: nvrOrSnapshot
+      type: string
+      default: ""
+      description: NVR, snapshot name, or empty for latest snapshot
+    - name: application
+      type: string
+      default: "fbc-mta-8-3"
+      description: Konflux application name to search snapshots
+    - name: namespace
+      type: string
+      default: "art-mta-tenant"
+      description: Namespace containing snapshots
+
+  results:
+    - name: snapshotName
+      description: Resolved snapshot name
+    - name: snapshotJson
+      description: Full snapshot JSON
+    - name: operatorNVR
+      description: Operator NVR from snapshot
+
+  steps:
+    - name: resolve
+      image: quay.io/openshift/origin-cli:4.21
+      script: |
+        #!/bin/bash
+        set -euo pipefail
+
+        INPUT="$(params.nvrOrSnapshot)"
+        APP="$(params.application)"
+        NS="$(params.namespace)"
+
+        echo "======================================"
+        echo "Resolving Snapshot"
+        echo "======================================"
+        echo "Input: ${INPUT:-<empty - will use latest>}"
+        echo "Application: $APP"
+        echo "Namespace: $NS"
+        echo ""
+
+        # Case 1: No input - get latest snapshot
+        if [ -z "$INPUT" ]; then
+          echo "No input provided - getting latest snapshot for $APP"
+
+          SNAPSHOT=$(oc get snapshot -n "$NS" \
+            -l appstudio.openshift.io/application="$APP" \
+            --sort-by=.metadata.creationTimestamp \
+            -o jsonpath='{.items[-1].metadata.name}')
+
+          if [ -z "$SNAPSHOT" ]; then
+            echo "❌ No snapshots found for application: $APP"
+            exit 1
+          fi
+
+          echo "✅ Latest snapshot: $SNAPSHOT"
+
+        # Case 2: Input looks like NVR (contains "mta-operator-container")
+        elif [[ "$INPUT" == *"mta-operator-container"* ]]; then
+          echo "NVR detected: $INPUT"
+          echo "Searching for snapshot containing this NVR..."
+
+          # Search snapshots for matching NVR in components
+          SNAPSHOT=$(oc get snapshot -n "$NS" \
+            -l appstudio.openshift.io/application="$APP" \
+            -o json | \
+            jq -r --arg nvr "$INPUT" '
+              .items[] |
+              select(.spec.components[]?.containerImage? | contains($nvr)) |
+              .metadata.name
+            ' | head -1)
+
+          if [ -z "$SNAPSHOT" ]; then
+            echo "❌ No snapshot found containing NVR: $INPUT"
+            echo ""
+            echo "Available recent snapshots:"
+            oc get snapshot -n "$NS" \
+              -l appstudio.openshift.io/application="$APP" \
+              --sort-by=.metadata.creationTimestamp \
+              -o jsonpath='{range .items[-5:]}{.metadata.name}{"\n"}{end}'
+            exit 1
+          fi
+
+          echo "✅ Found snapshot: $SNAPSHOT"
+
+        # Case 3: Assume it's a snapshot name
+        else
+          echo "Snapshot name provided: $INPUT"
+          SNAPSHOT="$INPUT"
+
+          # Verify it exists
+          if ! oc get snapshot "$SNAPSHOT" -n "$NS" &>/dev/null; then
+            echo "❌ Snapshot not found: $SNAPSHOT"
+            exit 1
+          fi
+
+          echo "✅ Snapshot exists: $SNAPSHOT"
+        fi
+
+        # Get full snapshot JSON
+        echo ""
+        echo "Fetching snapshot details..."
+        SNAPSHOT_JSON=$(oc get snapshot "$SNAPSHOT" -n "$NS" -o json)
+
+        # Extract operator NVR from components
+        OPERATOR_NVR=$(echo "$SNAPSHOT_JSON" | jq -r '
+          .spec.components[] |
+          select(.name == "mta-operator-container") |
+          .containerImage |
+          split("@")[0] |
+          split(":")[1]
+        ')
+
+        # Save results
+        echo -n "$SNAPSHOT" > $(results.snapshotName.path)
+        echo "$SNAPSHOT_JSON" > $(results.snapshotJson.path)
+        echo -n "$OPERATOR_NVR" > $(results.operatorNVR.path)
+
+        echo ""
+        echo "======================================"
+        echo "Resolution Complete"
+        echo "======================================"
+        echo "Snapshot: $SNAPSHOT"
+        echo "Operator NVR: $OPERATOR_NVR"
+        echo "======================================"

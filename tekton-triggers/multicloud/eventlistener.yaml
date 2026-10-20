@@ -1,0 +1,79 @@
+---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: EventListener
+metadata:
+  name: mta-multicloud-tier0-trigger
+  namespace: art-mta-tenant
+spec:
+  serviceAccountName: pipeline
+  triggers:
+    - name: slack-multicloud-tier0-trigger
+      bindings:
+        - ref: mta-multicloud-slack-binding
+      template:
+        ref: mta-multicloud-tier0-template
+
+---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerBinding
+metadata:
+  name: mta-multicloud-slack-binding
+  namespace: art-mta-tenant
+spec:
+  params:
+    - name: clusterType
+      value: $(body.cluster_type)
+    - name: nvrOrSnapshot
+      value: $(body.nvr_or_snapshot)
+    - name: application
+      value: $(body.application)
+    - name: triggeredBy
+      value: $(body.triggered_by)
+
+---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerTemplate
+metadata:
+  name: mta-multicloud-tier0-template
+  namespace: art-mta-tenant
+spec:
+  params:
+    - name: clusterType
+      default: "aro"
+    - name: nvrOrSnapshot
+      default: ""
+    - name: application
+      default: "fbc-mta-8-3"
+    - name: triggeredBy
+      default: "slack-user"
+  resourcetemplates:
+    - apiVersion: tekton.dev/v1
+      kind: PipelineRun
+      metadata:
+        generateName: mta-multicloud-tier0-
+        namespace: art-mta-tenant
+        labels:
+          triggered-by: $(tt.params.triggeredBy)
+          test-type: tier0
+          cluster-type: $(tt.params.clusterType)
+      spec:
+        pipelineRef:
+          resolver: git
+          params:
+            - name: url
+              value: https://github.com/migtools/mta-konflux-its
+            - name: revision
+              value: main
+            - name: pathInRepo
+              value: pipelines/multicloud/mta-tier0-pipeline.yaml
+        params:
+          - name: clusterType
+            value: $(tt.params.clusterType)
+          - name: nvrOrSnapshot
+            value: $(tt.params.nvrOrSnapshot)
+          - name: application
+            value: $(tt.params.application)
+          - name: triggeredBy
+            value: $(tt.params.triggeredBy)
+        timeouts:
+          pipeline: "4h"

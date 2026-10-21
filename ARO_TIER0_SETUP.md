@@ -1,9 +1,10 @@
 # MTA Multicloud Tier-0 Testing via Slack
 
-This setup allows you to trigger MTA tier-0 UI tests on multiple cloud platforms directly from Slack.
+This setup allows you to trigger MTA tier-0 UI tests on ALL cloud platforms with a single Slack command.
 
 ## Supported Cloud Platforms
 
+One webhook triggers parallel tests on:
 - **ARO** - Azure Red Hat OpenShift
 - **ROSA** - Red Hat OpenShift Service on AWS
 - **ROSA-STS** - ROSA with STS authentication
@@ -12,7 +13,7 @@ This setup allows you to trigger MTA tier-0 UI tests on multiple cloud platforms
 ## Architecture
 
 ```
-Slack Workflow → EventListener → PipelineRun → Cloud Cluster → Tests → Slack Notification
+Slack Workflow → EventListener → 4 Parallel PipelineRuns → 4 Clusters → Tests → Slack Notifications
 ```
 
 ## What It Does
@@ -52,29 +53,11 @@ echo "Webhook URL: https://$WEBHOOK_URL"
 
 3. **Add Step: Send a Form**
    
-   **Question 1:**
-   - Question: "Select cluster type"
-   - Answer type: Select from a list
-   - Options:
-     - `aro` (ARO - Azure Red Hat OpenShift)
-     - `rosa` (ROSA - Red Hat OpenShift Service on AWS)
-     - `rosa-sts` (ROSA-STS - ROSA with STS)
-     - `ocp-aws` (OCP-AWS - OpenShift on AWS)
-   - Default: `aro`
-   - Required: Yes
-   - Variable name: `cluster_type`
-   
-   **Question 2:**
-   - Question: "NVR, Snapshot, or leave empty for latest"
+   **Question:**
+   - Question: "NVR or leave empty for latest (tests run on ALL platforms)"
    - Answer type: Short answer (text)
    - Required: No
    - Variable name: `nvr_or_snapshot`
-   
-   **Question 3:**
-   - Question: "Application (usually fbc-mta-8-3)"
-   - Answer type: Short answer (text)
-   - Default value: `fbc-mta-8-3`
-   - Variable name: `application`
 
 4. **Add Step: Send a Webhook**
    - URL: `https://<WEBHOOK_URL>` (from step 1)
@@ -82,9 +65,7 @@ echo "Webhook URL: https://$WEBHOOK_URL"
    - Body:
      ```json
      {
-       "cluster_type": "{{cluster_type}}",
        "nvr_or_snapshot": "{{nvr_or_snapshot}}",
-       "application": "{{application}}",
        "triggered_by": "{{workflow.user.name}}"
      }
      ```
@@ -93,13 +74,12 @@ echo "Webhook URL: https://$WEBHOOK_URL"
    - Channel: `#mta-notifications` (or your channel)
    - Message:
      ```
-     ✅ Triggered multicloud tier-0 test
+     ✅ Triggered tier-0 tests on ALL platforms (ARO, ROSA, ROSA-STS, OCP-AWS)
      
-     Cluster: {{cluster_type}}
-     Snapshot/NVR: {{nvr_or_snapshot}}
+     NVR: {{nvr_or_snapshot}}
      Triggered by: {{workflow.user.name}}
      
-     You'll receive a notification when tests complete (~1-3 hours depending on platform).
+     4 parallel test runs started. You'll receive notifications as each completes (~1-3 hours per platform).
      ```
 
 6. **Publish Workflow**
@@ -112,91 +92,77 @@ echo "Webhook URL: https://$WEBHOOK_URL"
 2. Select "**MTA Multicloud Tier-0 Test**"
 3. Fill form:
    ```
-   Select cluster type:
+   NVR or leave empty for latest:
    ┌────────────────────────────────────────────┐
-   │ aro                                       │  ← dropdown
-   └────────────────────────────────────────────┘
-   
-   NVR, Snapshot, or leave empty for latest:
-   ┌────────────────────────────────────────────┐
-   │ mta-operator-container-8.3.2...           │
-   └────────────────────────────────────────────┘
-   
-   Application:
-   ┌────────────────────────────────────────────┐
-   │ fbc-mta-8-3                               │
+   │ mta-operator-container-8.4.0...           │
    └────────────────────────────────────────────┘
    
               [Submit]
    ```
 
-4. **Pipeline runs!** Monitor in Konflux:
+4. **4 pipelines run in parallel!** Monitor in Konflux:
    ```
    https://konflux-ui.apps.kflux-ocp-p01.7ayg.p1.openshiftapps.com/ns/art-mta-tenant/pipelineruns
    ```
+   You'll see:
+   - `mta-tier0-aro-xxxxx`
+   - `mta-tier0-rosa-xxxxx`
+   - `mta-tier0-rosa-sts-xxxxx`
+   - `mta-tier0-ocp-aws-xxxxx`
 
-5. **Get notification** when complete (~2-3 hours)
+5. **Get 4 separate notifications** as each platform completes (one per platform)
 
 ## Usage Examples
 
-### Example 1: Test Latest Snapshot on ARO
+### Example 1: Test Latest Snapshot on All Platforms
 
 In Slack form:
-- **Cluster Type:** `aro`
-- **NVR/Snapshot:** `<leave empty>`
-- **Application:** `fbc-mta-8-3`
+- **NVR:** `<leave empty>`
 
-### Example 2: Test Specific NVR on ROSA
+→ Triggers 4 parallel tests using latest snapshot from default app `fbc-mta-8-3`
 
-In Slack form:
-- **Cluster Type:** `rosa`
-- **NVR/Snapshot:** `mta-operator-container-8.4.0.202610191234.p2.g14f9d24.assembly.stream.el9`
-- **Application:** `fbc-mta-8-4`
+**Result:** 4 Slack notifications (one per platform):
+```
+✅ ARO (Azure Red Hat OpenShift) - PASSED
+✅ ROSA (Red Hat OpenShift Service on AWS) - PASSED  
+✅ ROSA-STS (ROSA with STS) - PASSED
+✅ OCP-AWS (OpenShift on AWS) - PASSED
+```
 
-### Example 3: Test Specific Snapshot on ROSA-STS
-
-In Slack form:
-- **Cluster Type:** `rosa-sts`
-- **NVR/Snapshot:** `fbc-mta-8-3-20261019-123456-000`
-- **Application:** `fbc-mta-8-3`
-
-### Example 4: Test on OCP-AWS
+### Example 2: Test Specific NVR on All Platforms
 
 In Slack form:
-- **Cluster Type:** `ocp-aws`
-- **NVR/Snapshot:** `<leave empty>`
-- **Application:** `fbc-mta-8-3`
+- **NVR:** `mta-operator-container-8.4.0.202610191234.p2.g14f9d24.assembly.stream.el9`
+
+→ Triggers 4 parallel tests, auto-derives app `fbc-mta-8-4` from NVR
+
+**Result:** 4 Slack notifications showing status for each platform
 
 ## Manual Trigger (Without Slack)
 
-If you need to trigger manually:
+If you need to trigger tests on a **single** platform manually:
 
 ```bash
-# Get latest snapshot
-SNAPSHOT=$(oc get snapshot -n art-mta-tenant \
-  -l appstudio.openshift.io/application=fbc-mta-8-3 \
-  --sort-by=.metadata.creationTimestamp \
-  -o jsonpath='{.items[-1].metadata.name}')
-
-# Trigger pipeline (specify cluster type)
+# Test specific NVR on ARO only
 tkn pipeline start mta-multicloud-tier0-pipeline \
   -n art-mta-tenant \
   --param clusterType=aro \
-  --param nvrOrSnapshot="$SNAPSHOT" \
-  --param application=fbc-mta-8-3 \
+  --param nvrOrSnapshot="mta-operator-container-8.4.0.202610191234.p2.g14f9d24.assembly.stream.el9" \
   --param triggeredBy="manual-cli" \
   --use-param-defaults \
   --showlog
 
-# For ROSA:
-# --param clusterType=rosa
-
-# For ROSA-STS:
-# --param clusterType=rosa-sts
-
-# For OCP-AWS:
-# --param clusterType=ocp-aws
+# Test on different platform
+tkn pipeline start mta-multicloud-tier0-pipeline \
+  -n art-mta-tenant \
+  --param clusterType=rosa \
+  --param nvrOrSnapshot="" \
+  --param triggeredBy="manual-cli" \
+  --use-param-defaults \
+  --showlog
 ```
+
+**Note:** Manual trigger runs one platform at a time. Use Slack workflow to trigger all 4 platforms with one command.
 
 ## Pipeline Timeline
 
@@ -241,27 +207,4 @@ oc logs <pipeline-run-pod> -c step-run-tests
 Check webhook secret exists:
 ```bash
 oc get secret slack-webhook-upgrade -n art-mta-tenant
-```
-
-## Future Enhancements
-
-Possible additions:
-- Multi-cloud matrix triggering (one Slack click → test on all platforms in parallel)
-- FIPS-enabled cluster variants
-- Custom OCP versions (currently fixed to 4.22)
-- Different test tags beyond @tier0
-
-## Files Created
-
-```
-tasks/multicloud/
-  resolve-snapshot-from-nvr.yaml      # NVR → snapshot resolution
-  map-cluster-profile.yaml            # Cluster type → OCPCTL profile mapping
-  slack-notification-tier0.yaml       # Slack results notification
-
-pipelines/multicloud/
-  mta-tier0-pipeline.yaml             # Unified multicloud test pipeline
-
-tekton-triggers/multicloud/
-  eventlistener.yaml                  # Slack webhook → pipeline trigger
 ```

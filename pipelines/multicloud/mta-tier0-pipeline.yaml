@@ -17,13 +17,9 @@ spec:
       type: string
       default: "aro"
     - name: nvrOrSnapshot
-      description: NVR, snapshot name, or empty for latest
+      description: NVR, snapshot name, or empty for latest (application auto-derived)
       type: string
       default: ""
-    - name: application
-      description: Konflux application name
-      type: string
-      default: "fbc-mta-8-3"
     - name: triggeredBy
       description: User who triggered the test
       type: string
@@ -51,8 +47,6 @@ spec:
       params:
         - name: nvrOrSnapshot
           value: $(params.nvrOrSnapshot)
-        - name: application
-          value: $(params.application)
       taskRef:
         resolver: git
         params:

@@ -19,10 +19,6 @@ spec:
       type: string
       default: ""
       description: NVR, snapshot name, or empty for latest snapshot
-    - name: application
-      type: string
-      default: "fbc-mta-8-3"
-      description: Konflux application name to search snapshots
     - name: namespace
       type: string
       default: "art-mta-tenant"
@@ -35,6 +31,8 @@ spec:
       description: Full snapshot JSON
     - name: operatorNVR
       description: Operator NVR from snapshot
+    - name: application
+      description: Auto-derived application name
 
   steps:
     - name: resolve
@@ -44,13 +42,39 @@ spec:
         set -euo pipefail
 
         INPUT="$(params.nvrOrSnapshot)"
-        APP="$(params.application)"
         NS="$(params.namespace)"
 
         echo "======================================"
         echo "Resolving Snapshot"
         echo "======================================"
         echo "Input: ${INPUT:-<empty - will use latest>}"
+        echo ""
+
+        # Auto-derive application name from input
+        if [ -z "$INPUT" ]; then
+          # No input - default to fbc-mta-8-3
+          APP="fbc-mta-8-3"
+          echo "📋 No input provided - using default application: $APP"
+
+        elif [[ "$INPUT" == *"mta-operator-container"* ]]; then
+          # NVR detected - extract version and construct app name
+          # Example: mta-operator-container-8.4.0.202610191234... → 8.4 → fbc-mta-8-4
+          VERSION=$(echo "$INPUT" | grep -oP 'mta-operator-container-\K[0-9]+\.[0-9]+')
+          APP="fbc-mta-${VERSION//./-}"
+          echo "📋 NVR detected - derived application: $APP (version: $VERSION)"
+
+        elif [[ "$INPUT" == fbc-mta-* ]]; then
+          # Snapshot name - extract app name from prefix
+          # Example: fbc-mta-8-3-20261019-123456-000 → fbc-mta-8-3
+          APP=$(echo "$INPUT" | grep -oP '^fbc-mta-[0-9]+-[0-9]+')
+          echo "📋 Snapshot name detected - derived application: $APP"
+
+        else
+          # Unknown format - default to fbc-mta-8-3
+          APP="fbc-mta-8-3"
+          echo "⚠️  Unknown input format - using default application: $APP"
+        fi
+
         echo "Application: $APP"
         echo "Namespace: $NS"
         echo ""
@@ -131,6 +155,7 @@ spec:
         echo -n "$SNAPSHOT" > $(results.snapshotName.path)
         echo "$SNAPSHOT_JSON" > $(results.snapshotJson.path)
         echo -n "$OPERATOR_NVR" > $(results.operatorNVR.path)
+        echo -n "$APP" > $(results.application.path)
 
         echo ""
         echo "======================================"
@@ -138,4 +163,5 @@ spec:
         echo "======================================"
         echo "Snapshot: $SNAPSHOT"
         echo "Operator NVR: $OPERATOR_NVR"
+        echo "Application: $APP"
         echo "======================================"

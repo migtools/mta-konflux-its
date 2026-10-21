@@ -21,12 +21,8 @@ metadata:
   namespace: art-mta-tenant
 spec:
   params:
-    - name: clusterType
-      value: $(body.cluster_type)
     - name: nvrOrSnapshot
       value: $(body.nvr_or_snapshot)
-    - name: application
-      value: $(body.application)
     - name: triggeredBy
       value: $(body.triggered_by)
 
@@ -38,24 +34,21 @@ metadata:
   namespace: art-mta-tenant
 spec:
   params:
-    - name: clusterType
-      default: "aro"
     - name: nvrOrSnapshot
       default: ""
-    - name: application
-      default: "fbc-mta-8-3"
     - name: triggeredBy
       default: "slack-user"
   resourcetemplates:
+    # ARO PipelineRun
     - apiVersion: tekton.dev/v1
       kind: PipelineRun
       metadata:
-        generateName: mta-multicloud-tier0-
+        generateName: mta-tier0-aro-
         namespace: art-mta-tenant
         labels:
           triggered-by: $(tt.params.triggeredBy)
           test-type: tier0
-          cluster-type: $(tt.params.clusterType)
+          cluster-type: aro
       spec:
         pipelineRef:
           resolver: git
@@ -68,11 +61,99 @@ spec:
               value: pipelines/multicloud/mta-tier0-pipeline.yaml
         params:
           - name: clusterType
-            value: $(tt.params.clusterType)
+            value: aro
           - name: nvrOrSnapshot
             value: $(tt.params.nvrOrSnapshot)
-          - name: application
-            value: $(tt.params.application)
+          - name: triggeredBy
+            value: $(tt.params.triggeredBy)
+        timeouts:
+          pipeline: "4h"
+
+    # ROSA PipelineRun
+    - apiVersion: tekton.dev/v1
+      kind: PipelineRun
+      metadata:
+        generateName: mta-tier0-rosa-
+        namespace: art-mta-tenant
+        labels:
+          triggered-by: $(tt.params.triggeredBy)
+          test-type: tier0
+          cluster-type: rosa
+      spec:
+        pipelineRef:
+          resolver: git
+          params:
+            - name: url
+              value: https://github.com/migtools/mta-konflux-its
+            - name: revision
+              value: main
+            - name: pathInRepo
+              value: pipelines/multicloud/mta-tier0-pipeline.yaml
+        params:
+          - name: clusterType
+            value: rosa
+          - name: nvrOrSnapshot
+            value: $(tt.params.nvrOrSnapshot)
+          - name: triggeredBy
+            value: $(tt.params.triggeredBy)
+        timeouts:
+          pipeline: "4h"
+
+    # ROSA-STS PipelineRun
+    - apiVersion: tekton.dev/v1
+      kind: PipelineRun
+      metadata:
+        generateName: mta-tier0-rosa-sts-
+        namespace: art-mta-tenant
+        labels:
+          triggered-by: $(tt.params.triggeredBy)
+          test-type: tier0
+          cluster-type: rosa-sts
+      spec:
+        pipelineRef:
+          resolver: git
+          params:
+            - name: url
+              value: https://github.com/migtools/mta-konflux-its
+            - name: revision
+              value: main
+            - name: pathInRepo
+              value: pipelines/multicloud/mta-tier0-pipeline.yaml
+        params:
+          - name: clusterType
+            value: rosa-sts
+          - name: nvrOrSnapshot
+            value: $(tt.params.nvrOrSnapshot)
+          - name: triggeredBy
+            value: $(tt.params.triggeredBy)
+        timeouts:
+          pipeline: "4h"
+
+    # OCP-AWS PipelineRun
+    - apiVersion: tekton.dev/v1
+      kind: PipelineRun
+      metadata:
+        generateName: mta-tier0-ocp-aws-
+        namespace: art-mta-tenant
+        labels:
+          triggered-by: $(tt.params.triggeredBy)
+          test-type: tier0
+          cluster-type: ocp-aws
+      spec:
+        pipelineRef:
+          resolver: git
+          params:
+            - name: url
+              value: https://github.com/migtools/mta-konflux-its
+            - name: revision
+              value: main
+            - name: pathInRepo
+              value: pipelines/multicloud/mta-tier0-pipeline.yaml
+        params:
+          - name: clusterType
+            value: ocp-aws
+          - name: nvrOrSnapshot
+            value: $(tt.params.nvrOrSnapshot)
           - name: triggeredBy
             value: $(tt.params.triggeredBy)
         timeouts:

@@ -1,0 +1,28 @@
+---
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: mta-tier0-ocp-aws
+  annotations:
+    pipelinesascode.tekton.dev/on-event: "[issue_comment]"
+    pipelinesascode.tekton.dev/on-comment: "^/test-tier0"
+    pipelinesascode.tekton.dev/max-keep-runs: "5"
+spec:
+  params:
+    - name: clusterType
+      value: "ocp-aws"
+    - name: nvrOrSnapshot
+      value: ""
+    - name: triggeredBy
+      value: "pac-github"
+  pipelineRef:
+    resolver: git
+    params:
+      - name: url
+        value: https://github.com/migtools/mta-konflux-its
+      - name: revision
+        value: main
+      - name: pathInRepo
+        value: pipelines/multicloud/mta-tier0-pipeline.yaml
+  timeouts:
+    pipeline: "4h"

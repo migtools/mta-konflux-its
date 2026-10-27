@@ -1,0 +1,46 @@
+---
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: debug-pac-setup
+spec:
+  description: Debug pipeline to check PaC setup
+  tasks:
+    - name: check-repository-cr
+      taskSpec:
+        steps:
+          - name: debug
+            image: quay.io/openshift/origin-cli:latest
+            script: |
+              #!/bin/bash
+              set -x
+
+              echo "========================================="
+              echo "Checking PaC Repository CR"
+              echo "========================================="
+
+              echo ""
+              echo "1. List all Repository CRs:"
+              oc get repository -n art-mta-tenant || echo "Failed to list repositories"
+
+              echo ""
+              echo "2. Check for mta-konflux-its Repository:"
+              oc get repository mta-konflux-its -n art-mta-tenant || echo "Repository mta-konflux-its not found"
+
+              echo ""
+              echo "3. If exists, show details:"
+              oc get repository mta-konflux-its -n art-mta-tenant -o yaml 2>/dev/null || echo "Could not get details"
+
+              echo ""
+              echo "4. Check Components with mta-konflux-its:"
+              oc get component -n art-mta-tenant -o json | \
+                jq '.items[] | select(.spec.source.git.url | contains("mta-konflux-its")) | {name: .metadata.name, url: .spec.source.git.url, annotations: .metadata.annotations}' || echo "No matching components"
+
+              echo ""
+              echo "5. Check PaC controller pods:"
+              oc get pods -n openshift-pipelines -l app.kubernetes.io/part-of=pipelines-as-code || echo "PaC pods not found"
+
+              echo ""
+              echo "========================================="
+              echo "Debug check complete"
+              echo "========================================="

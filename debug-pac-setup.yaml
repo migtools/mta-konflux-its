@@ -1,31 +1,8 @@
 ---
-apiVersion: appstudio.redhat.com/v1beta2
-kind: IntegrationTestScenario
-metadata:
-  name: debug-pac-setup
-  namespace: art-mta-tenant
-  labels:
-    test.appstudio.openshift.io/optional: "true"
-spec:
-  application: fbc-mta-8-3
-  contexts:
-    - description: Debug PaC setup - check if Repository CR exists
-      name: push
-  resolverRef:
-    resolver: cluster
-    params:
-      - name: kind
-        value: pipeline
-      - name: name
-        value: debug-pac-pipeline
-      - name: namespace
-        value: art-mta-tenant
----
 apiVersion: tekton.dev/v1
 kind: Pipeline
 metadata:
-  name: debug-pac-pipeline
-  namespace: art-mta-tenant
+  name: debug-pac-setup
 spec:
   description: Debug pipeline to check PaC setup
   tasks:

@@ -6,7 +6,6 @@ metadata:
   annotations:
     pipelinesascode.tekton.dev/on-event: "[issue_comment]"
     pipelinesascode.tekton.dev/on-comment: "^/test-tier0"
-    pipelinesascode.tekton.dev/task: "[git-clone]"
     pipelinesascode.tekton.dev/max-keep-runs: "5"
 spec:
   params:

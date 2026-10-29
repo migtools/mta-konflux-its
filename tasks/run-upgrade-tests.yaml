@@ -56,7 +56,7 @@ spec:
 
   steps:
     - name: run-upgrade-tests
-      image: cypress/included:15.7.0
+      image: cypress/included:15.21.1
       env:
         - name: CYPRESS_CACHE_FOLDER
           value: /tmp/.cache/Cypress

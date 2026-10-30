@@ -50,7 +50,7 @@ spec:
 
   steps:
     - name: run-tests
-      image: cypress/included:15.7.0
+      image: cypress/included:16.2.0
       env:
         - name: CYPRESS_CACHE_FOLDER
           value: /tmp/.cache/Cypress

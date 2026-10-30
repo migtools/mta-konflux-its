@@ -109,13 +109,17 @@ spec:
           echo "NVR detected: $INPUT"
           echo "Searching for snapshot containing this NVR..."
 
-          # Search snapshots for matching NVR in components
+          # Search snapshots for matching NVR in operator-container component
           SNAPSHOT=$(oc get snapshot -n "$NS" \
             -l appstudio.openshift.io/application="$APP" \
             -o json | \
             $JQ -r --arg nvr "$INPUT" '
               .items[] |
-              select(.spec.components[]?.containerImage? | contains($nvr)) |
+              select(
+                .spec.components[] |
+                select(.name | endswith("-mta-operator-container")) |
+                .containerImage | contains($nvr)
+              ) |
               .metadata.name
             ' | head -1)
 
@@ -151,29 +155,20 @@ spec:
         echo "Fetching snapshot details..."
         SNAPSHOT_JSON=$(oc get snapshot "$SNAPSHOT" -n "$NS" -o json)
 
-        # Debug: Show component names
-        echo ""
-        echo "=== Debug: Components in snapshot ==="
-        echo "$SNAPSHOT_JSON" | $JQ -r '.spec.components[].name'
-        echo ""
-
         # Extract operator NVR from components
-        echo "=== Debug: Looking for mta-operator-container ==="
+        # Component name pattern: fbc-mta-X-Y-mta-operator-container
         OPERATOR_IMAGE=$(echo "$SNAPSHOT_JSON" | $JQ -r '
           .spec.components[] |
-          select(.name == "mta-operator-container") |
+          select(.name | endswith("-mta-operator-container")) |
           .containerImage
         ')
-        echo "Operator image: $OPERATOR_IMAGE"
 
         if [ -z "$OPERATOR_IMAGE" ]; then
-          echo "⚠️  WARNING: mta-operator-container component not found!"
-          echo "Available components:"
-          echo "$SNAPSHOT_JSON" | $JQ -r '.spec.components[] | "\(.name) - \(.containerImage)"'
+          echo "⚠️  WARNING: No component ending with -mta-operator-container found!"
           OPERATOR_NVR="unknown"
         else
-          OPERATOR_NVR=$(echo "$OPERATOR_IMAGE" | awk -F'[@:]' '{print $(NF-1)}')
-          echo "Extracted NVR: $OPERATOR_NVR"
+          # Extract NVR from image (format: registry/path/name:nvr@sha256:...)
+          OPERATOR_NVR=$(echo "$OPERATOR_IMAGE" | sed 's/@sha256.*//' | sed 's/.*://')
         fi
 
         # Save results

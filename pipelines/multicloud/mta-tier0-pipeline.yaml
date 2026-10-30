@@ -4,43 +4,52 @@ metadata:
   name: mta-multicloud-tier0-pipeline
 spec:
   description: |
-    MTA Tier-0 UI Tests on Multiple Cloud Platforms
+    MTA Tier-0 UI Tests on Multicloud Platforms
 
-    Provisions a fresh cluster (ARO/ROSA/ROSA-STS/OCP-AWS), deploys MTA operator
-    from Konflux snapshot, runs tier-0 UI tests, and destroys the cluster.
+    Provisions fresh cluster (ARO/ROSA/ROSA-STS/OCP-AWS), deploys MTA operator,
+    runs tier-0 UI tests, and destroys the cluster.
 
-    Can be triggered from Slack with NVR, snapshot name, or latest snapshot.
+    Input: Provide NVR (e.g., mta-operator-container-8.3.0-...) OR Snapshot name
+    The pipeline will resolve NVR to the matching Snapshot automatically.
 
   params:
+    - name: SNAPSHOT
+      description: Application Snapshot JSON (auto-provided by ITS)
+      type: string
+      default: ""
+    - name: nvrOrSnapshot
+      description: "NVR or snapshot name (for manual trigger, e.g., mta-operator-container-8.3.0-...)"
+      type: string
+      default: ""
     - name: clusterType
       description: Cluster type (aro, rosa, rosa-sts, ocp-aws)
       type: string
       default: "aro"
-    - name: nvrOrSnapshot
-      description: NVR, snapshot name, or empty for latest (application auto-derived)
-      type: string
-      default: ""
-    - name: triggeredBy
-      description: User who triggered the test
-      type: string
-      default: "unknown"
 
   results:
     - name: SNAPSHOT_NAME
-      description: Resolved snapshot name
-      value: $(tasks.resolve-snapshot.results.snapshotName)
+      description: Snapshot name tested
+      value: $(tasks.get-snapshot.results.snapshotName)
     - name: OPERATOR_NVR
       description: Operator NVR tested
-      value: $(tasks.resolve-snapshot.results.operatorNVR)
+      value: $(tasks.extract-operator-nvr.results.operatorNVR)
     - name: CLUSTER_ID
       description: Cluster ID
       value: $(tasks.provision-cluster.results.clusterId)
+    - name: DEPLOYMENT_STATUS
+      description: Operator deployment status
+      value: $(tasks.deploy-operator.results.deploymentStatus)
     - name: TEST_STATUS
-      description: Tier-0 test result (PASSED/FAILED)
+      description: Tier-0 test result
       value: $(tasks.run-tier0-tests.results.testStatus)
 
   tasks:
-    - name: resolve-snapshot
+    # Step 1: Resolve NVR to Snapshot (if NVR provided)
+    - name: resolve-snapshot-from-nvr
+      when:
+        - input: "$(params.nvrOrSnapshot)"
+          operator: notin
+          values: [""]
       params:
         - name: nvrOrSnapshot
           value: $(params.nvrOrSnapshot)
@@ -54,6 +63,80 @@ spec:
           - name: pathInRepo
             value: tasks/multicloud/resolve-snapshot-from-nvr.yaml
 
+    # Step 2: Get Snapshot (either from resolution or ITS param)
+    - name: get-snapshot
+      runAfter:
+        - resolve-snapshot-from-nvr
+      params:
+        - name: resolvedSnapshot
+          value: $(tasks.resolve-snapshot-from-nvr.results.snapshotJson)
+        - name: itsSnapshot
+          value: $(params.SNAPSHOT)
+        - name: wasResolved
+          value: "$(params.nvrOrSnapshot)"
+      taskSpec:
+        params:
+          - name: resolvedSnapshot
+          - name: itsSnapshot
+          - name: wasResolved
+        results:
+          - name: snapshotJson
+          - name: snapshotName
+        steps:
+          - name: pick-snapshot
+            image: registry.access.redhat.com/ubi9/ubi-minimal
+            script: |
+              #!/bin/bash
+              set -euo pipefail
+
+              # If NVR was provided, use resolved snapshot
+              if [ -n "$(params.wasResolved)" ]; then
+                echo "Using resolved snapshot from NVR"
+                echo '$(params.resolvedSnapshot)' > $(results.snapshotJson.path)
+                echo '$(params.resolvedSnapshot)' | grep -oP '"name":"\K[^"]+' | head -1 > $(results.snapshotName.path)
+              else
+                echo "Using ITS-provided snapshot"
+                echo '$(params.itsSnapshot)' > $(results.snapshotJson.path)
+                echo '$(params.itsSnapshot)' | grep -oP '"name":"\K[^"]+' | head -1 > $(results.snapshotName.path)
+              fi
+
+    # Step 3: Parse snapshot metadata (extracts component image)
+    - name: parse-metadata
+      runAfter:
+        - get-snapshot
+      params:
+        - name: SNAPSHOT
+          value: $(tasks.get-snapshot.results.snapshotJson)
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/konflux-ci/integration-examples
+          - name: revision
+            value: a1a70b0a1cfc96f5216d472fbd60f6b42780b3e5
+          - name: pathInRepo
+            value: tasks/test_metadata.yaml
+
+    # Step 4: Extract operator NVR
+    - name: extract-operator-nvr
+      runAfter:
+        - parse-metadata
+      params:
+        - name: snapshotJson
+          value: $(tasks.get-snapshot.results.snapshotJson)
+        - name: pipelineRunName
+          value: $(context.pipelineRun.name)
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: fix-tier0-pipeline-validation
+          - name: pathInRepo
+            value: tasks/extract-operator-nvr.yaml
+
+    # Step 5: Map cluster configuration
     - name: map-cluster-config
       params:
         - name: clusterType
@@ -68,13 +151,14 @@ spec:
           - name: pathInRepo
             value: tasks/multicloud/map-cluster-profile.yaml
 
+    # Step 6: Provision cluster
     - name: provision-cluster
       runAfter:
-        - resolve-snapshot
+        - extract-operator-nvr
         - map-cluster-config
       params:
         - name: clusterName
-          value: "$(params.clusterType)-tier0-$(tasks.resolve-snapshot.results.snapshotName)"
+          value: "mta-$(params.clusterType)-tier0-$(context.pipelineRun.name)"
         - name: profile
           value: $(tasks.map-cluster-config.results.profile)
         - name: version
@@ -93,61 +177,10 @@ spec:
           - name: pathInRepo
             value: tasks/ocpctl-provision.yaml
 
-    - name: extract-fbc-image
-      runAfter:
-        - resolve-snapshot
-      params:
-        - name: snapshotJson
-          value: $(tasks.resolve-snapshot.results.snapshotJson)
-      taskSpec:
-        params:
-          - name: snapshotJson
-        results:
-          - name: fbcImage
-        steps:
-          - name: extract
-            image: registry.access.redhat.com/ubi9/ubi-minimal
-            script: |
-              #!/bin/bash
-              set -euo pipefail
-
-              # Install jq if not available
-              if command -v jq &> /dev/null; then
-                JQ="jq"
-              else
-                curl -sL https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64 -o /tmp/jq
-                chmod +x /tmp/jq
-                JQ="/tmp/jq"
-              fi
-
-              # Debug: Show available components
-              echo "=== Debug: Components in snapshot ==="
-              echo '$(params.snapshotJson)' | $JQ -r '.spec.components[].name'
-              echo ""
-
-              # Extract FBC catalog image from snapshot
-              FBC_IMAGE=$(echo '$(params.snapshotJson)' | $JQ -r '
-                .spec.components[] |
-                select(.name == "mta-operator-bundle") |
-                .containerImage
-              ')
-
-              if [ -z "$FBC_IMAGE" ]; then
-                echo "⚠️  mta-operator-bundle not found, trying mta-operator-catalog..."
-                FBC_IMAGE=$(echo '$(params.snapshotJson)' | $JQ -r '
-                  .spec.components[] |
-                  select(.name == "mta-operator-catalog") |
-                  .containerImage
-                ')
-              fi
-
-              echo "FBC Image: $FBC_IMAGE"
-              echo -n "$FBC_IMAGE" > $(results.fbcImage.path)
-
-    - name: deploy-mta-operator
+    # Step 7: Deploy MTA operator
+    - name: deploy-operator
       runAfter:
         - provision-cluster
-        - extract-fbc-image
       when:
         - input: "$(tasks.provision-cluster.results.provisionStatus)"
           operator: in
@@ -156,9 +189,9 @@ spec:
         - name: clusterId
           value: $(tasks.provision-cluster.results.clusterId)
         - name: fbcImage
-          value: $(tasks.extract-fbc-image.results.fbcImage)
+          value: $(tasks.parse-metadata.results.component-container-image)
         - name: snapshotJson
-          value: $(tasks.resolve-snapshot.results.snapshotJson)
+          value: $(tasks.get-snapshot.results.snapshotJson)
       taskRef:
         resolver: git
         params:
@@ -169,12 +202,13 @@ spec:
           - name: pathInRepo
             value: tasks/deploy-mta-operator.yaml
 
+    # Step 8: Run tier-0 UI tests
     - name: run-tier0-tests
       runAfter:
-        - deploy-mta-operator
+        - deploy-operator
       params:
         - name: uiRoute
-          value: $(tasks.deploy-mta-operator.results.uiRoute)
+          value: $(tasks.deploy-operator.results.uiRoute)
         - name: testTags
           value: "@tier0"
         - name: gitBranch
@@ -190,6 +224,7 @@ spec:
             value: tasks/run-ui-e2e-tests.yaml
 
   finally:
+    # Always destroy cluster
     - name: destroy-cluster
       when:
         - input: "$(tasks.provision-cluster.status)"
@@ -208,11 +243,12 @@ spec:
           - name: pathInRepo
             value: tasks/ocpctl-pool-release.yaml
 
+    # Send Slack notification
     - name: send-slack-notification
       when:
         - input: "$(tasks.run-tier0-tests.status)"
           operator: in
-          values: ["Succeeded", "Failed"]
+          values: ["Succeeded", "Failed", "None"]
       params:
         - name: testStatus
           value: $(tasks.run-tier0-tests.status)
@@ -221,15 +257,15 @@ spec:
         - name: clusterTypeLabel
           value: $(tasks.map-cluster-config.results.clusterTypeLabel)
         - name: snapshotName
-          value: $(tasks.resolve-snapshot.results.snapshotName)
+          value: $(tasks.get-snapshot.results.snapshotName)
         - name: operatorNVR
-          value: $(tasks.resolve-snapshot.results.operatorNVR)
+          value: $(tasks.extract-operator-nvr.results.operatorNVR)
         - name: clusterId
           value: $(tasks.provision-cluster.results.clusterId)
         - name: pipelineRunName
           value: $(context.pipelineRun.name)
         - name: triggeredBy
-          value: $(params.triggeredBy)
+          value: "manual"
       taskRef:
         resolver: git
         params:

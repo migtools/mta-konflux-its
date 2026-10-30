@@ -189,6 +189,45 @@ spec:
 
           if [ "$STATUS" = "FAILED" ] || [ "$STATUS" = "DESTROY_FAILED" ]; then
             echo "❌ Cluster reached failure status: $STATUS"
+            echo ""
+            echo "Cluster details:"
+            echo "$RESPONSE" | python3 -c "
+        import sys, json
+        try:
+            data = json.load(sys.stdin)
+            cluster = data.get('cluster', data)
+            print(f\"Status message: {cluster.get('status_message', 'N/A')}\")
+            print(f\"Error: {cluster.get('error', 'N/A')}\")
+            print(f\"Details: {cluster.get('details', 'N/A')}\")
+        except:
+            print('Could not parse cluster details')
+        " || true
+
+            echo ""
+            echo "Fetching cluster logs..."
+            LOGS=$(curl -s --insecure --max-time 30 \
+              -H "Authorization: Bearer $OCPCTL_API_KEY" \
+              "$OCPCTL_URL/clusters/$CLUSTER_ID/logs" || echo "")
+
+            if [ -n "$LOGS" ]; then
+              echo "$LOGS" | python3 -c "
+        import sys, json
+        try:
+            data = json.load(sys.stdin)
+            logs = data.get('logs', [])
+            if logs:
+                print('Last 10 log entries:')
+                for log in logs[-10:]:
+                    print(f\"{log.get('timestamp', 'N/A')} [{log.get('level', 'INFO')}] {log.get('message', '')}\")
+            else:
+                print('No logs available')
+        except Exception as e:
+            print(f'Could not parse logs: {e}')
+        " || echo "Failed to parse logs"
+            else
+              echo "No logs returned from API"
+            fi
+
             echo -n "FAILED" > $(results.provisionStatus.path)
             # Do NOT exit 1 - we need clusterId available for cleanup
             exit 0

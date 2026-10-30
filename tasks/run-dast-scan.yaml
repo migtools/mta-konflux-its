@@ -52,7 +52,7 @@ spec:
         echo "RapiDAST cloned successfully"
 
     - name: connect-to-cluster
-      image: registry.access.redhat.com/ubi9/ubi:9.5
+      image: registry.access.redhat.com/ubi9/ubi:9.8-1793179168
       env:
         - name: OCPCTL_API_KEY
           valueFrom:
@@ -114,7 +114,7 @@ spec:
         echo "Connected to cluster as $(oc whoami)"
 
     - name: disable-auth
-      image: registry.access.redhat.com/ubi9/ubi:9.5
+      image: registry.access.redhat.com/ubi9/ubi:9.8-1793179168
       script: |
         #!/bin/bash
         set -euo pipefail
@@ -239,7 +239,7 @@ spec:
         fi
 
     - name: re-enable-auth
-      image: registry.access.redhat.com/ubi9/ubi:9.5
+      image: registry.access.redhat.com/ubi9/ubi:9.8-1793179168
       script: |
         #!/bin/bash
         set -euo pipefail

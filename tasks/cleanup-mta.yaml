@@ -33,7 +33,7 @@ spec:
 
   steps:
     - name: cleanup
-      image: registry.access.redhat.com/ubi9/ubi:9.5
+      image: registry.access.redhat.com/ubi9/ubi:9.8-1793179168
       env:
         - name: OCPCTL_API_KEY
           valueFrom:

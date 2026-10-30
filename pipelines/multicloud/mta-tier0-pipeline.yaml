@@ -120,12 +120,26 @@ spec:
                 JQ="/tmp/jq"
               fi
 
+              # Debug: Show available components
+              echo "=== Debug: Components in snapshot ==="
+              echo '$(params.snapshotJson)' | $JQ -r '.spec.components[].name'
+              echo ""
+
               # Extract FBC catalog image from snapshot
               FBC_IMAGE=$(echo '$(params.snapshotJson)' | $JQ -r '
                 .spec.components[] |
                 select(.name == "mta-operator-bundle") |
                 .containerImage
               ')
+
+              if [ -z "$FBC_IMAGE" ]; then
+                echo "⚠️  mta-operator-bundle not found, trying mta-operator-catalog..."
+                FBC_IMAGE=$(echo '$(params.snapshotJson)' | $JQ -r '
+                  .spec.components[] |
+                  select(.name == "mta-operator-catalog") |
+                  .containerImage
+                ')
+              fi
 
               echo "FBC Image: $FBC_IMAGE"
               echo -n "$FBC_IMAGE" > $(results.fbcImage.path)

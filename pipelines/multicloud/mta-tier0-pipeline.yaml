@@ -32,9 +32,6 @@ spec:
     - name: OPERATOR_NVR
       description: Operator NVR tested
       value: $(tasks.resolve-snapshot.results.operatorNVR)
-    - name: CLUSTER_TYPE
-      description: Cluster type tested
-      value: $(params.clusterType)
     - name: CLUSTER_ID
       description: Cluster ID
       value: $(tasks.provision-cluster.results.clusterId)

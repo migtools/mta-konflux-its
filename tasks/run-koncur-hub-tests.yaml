@@ -42,7 +42,7 @@ spec:
 
   steps:
     - name: run-tests
-      image: golang:1.25
+      image: golang:1.27
       env:
         - name: SKIP_MAVEN
           value: "false"

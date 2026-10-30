@@ -41,13 +41,45 @@ spec:
         #!/bin/bash
         set -euo pipefail
 
+        echo "=== Debug: Checking for jq ==="
+        which jq || echo "jq not in PATH"
+        command -v jq && echo "jq found!" || echo "jq NOT found"
+
         # Install jq if not available
         if ! command -v jq &> /dev/null; then
           echo "jq not found, installing..."
-          curl -sL https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64 -o /tmp/jq
+          echo "Current PATH: $PATH"
+          echo "Downloading jq..."
+
+          if curl -sL https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64 -o /tmp/jq; then
+            echo "✓ Download successful"
+            ls -la /tmp/jq
+          else
+            echo "✗ Download failed"
+            exit 1
+          fi
+
           chmod +x /tmp/jq
+          ls -la /tmp/jq
+
           export PATH="/tmp:$PATH"
-          echo "jq installed to /tmp/jq"
+          echo "Updated PATH: $PATH"
+
+          if /tmp/jq --version; then
+            echo "✓ jq works: $(/tmp/jq --version)"
+          else
+            echo "✗ jq binary doesn't work"
+            exit 1
+          fi
+
+          if command -v jq; then
+            echo "✓ jq now in PATH"
+          else
+            echo "✗ jq still not in PATH"
+            exit 1
+          fi
+        else
+          echo "jq already available: $(jq --version)"
         fi
 
         INPUT="$(params.nvrOrSnapshot)"

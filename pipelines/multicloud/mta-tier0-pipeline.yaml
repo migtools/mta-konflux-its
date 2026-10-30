@@ -111,8 +111,17 @@ spec:
               #!/bin/bash
               set -euo pipefail
 
+              # Install jq if not available
+              if command -v jq &> /dev/null; then
+                JQ="jq"
+              else
+                curl -sL https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64 -o /tmp/jq
+                chmod +x /tmp/jq
+                JQ="/tmp/jq"
+              fi
+
               # Extract FBC catalog image from snapshot
-              FBC_IMAGE=$(echo '$(params.snapshotJson)' | jq -r '
+              FBC_IMAGE=$(echo '$(params.snapshotJson)' | $JQ -r '
                 .spec.components[] |
                 select(.name == "mta-operator-bundle") |
                 .containerImage

@@ -128,7 +128,7 @@ spec:
         echo "✅ Kubeconfig downloaded successfully"
 
     - name: configure-pull-secret
-      image: quay.io/openshift/origin-cli:4.21
+      image: quay.io/openshift/origin-cli:4.22
       volumeMounts:
         - name: credentials
           mountPath: /credentials
@@ -162,7 +162,7 @@ spec:
         echo "✅ Stage registry credentials merged"
 
     - name: configure-registry-mirror
-      image: quay.io/openshift/origin-cli:4.21
+      image: quay.io/openshift/origin-cli:4.22
       volumeMounts:
         - name: credentials
           mountPath: /credentials
@@ -198,7 +198,7 @@ spec:
         echo "✅ MachineConfigPool updated"
 
     - name: install-operator
-      image: quay.io/openshift/origin-cli:4.21
+      image: quay.io/openshift/origin-cli:4.22
       volumeMounts:
         - name: credentials
           mountPath: /credentials

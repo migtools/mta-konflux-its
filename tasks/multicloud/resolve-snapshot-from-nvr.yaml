@@ -41,45 +41,13 @@ spec:
         #!/bin/bash
         set -euo pipefail
 
-        echo "=== Debug: Checking for jq ==="
-        which jq || echo "jq not in PATH"
-        command -v jq && echo "jq found!" || echo "jq NOT found"
-
         # Install jq if not available
-        if ! command -v jq &> /dev/null; then
-          echo "jq not found, installing..."
-          echo "Current PATH: $PATH"
-          echo "Downloading jq..."
-
-          if curl -sL https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64 -o /tmp/jq; then
-            echo "✓ Download successful"
-            ls -la /tmp/jq
-          else
-            echo "✗ Download failed"
-            exit 1
-          fi
-
-          chmod +x /tmp/jq
-          ls -la /tmp/jq
-
-          export PATH="/tmp:$PATH"
-          echo "Updated PATH: $PATH"
-
-          if /tmp/jq --version; then
-            echo "✓ jq works: $(/tmp/jq --version)"
-          else
-            echo "✗ jq binary doesn't work"
-            exit 1
-          fi
-
-          if command -v jq; then
-            echo "✓ jq now in PATH"
-          else
-            echo "✗ jq still not in PATH"
-            exit 1
-          fi
+        if command -v jq &> /dev/null; then
+          JQ="jq"
         else
-          echo "jq already available: $(jq --version)"
+          curl -sL https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64 -o /tmp/jq
+          chmod +x /tmp/jq
+          JQ="/tmp/jq"
         fi
 
         INPUT="$(params.nvrOrSnapshot)"
@@ -145,7 +113,7 @@ spec:
           SNAPSHOT=$(oc get snapshot -n "$NS" \
             -l appstudio.openshift.io/application="$APP" \
             -o json | \
-            jq -r --arg nvr "$INPUT" '
+            $JQ -r --arg nvr "$INPUT" '
               .items[] |
               select(.spec.components[]?.containerImage? | contains($nvr)) |
               .metadata.name
@@ -183,14 +151,30 @@ spec:
         echo "Fetching snapshot details..."
         SNAPSHOT_JSON=$(oc get snapshot "$SNAPSHOT" -n "$NS" -o json)
 
+        # Debug: Show component names
+        echo ""
+        echo "=== Debug: Components in snapshot ==="
+        echo "$SNAPSHOT_JSON" | $JQ -r '.spec.components[].name'
+        echo ""
+
         # Extract operator NVR from components
-        OPERATOR_NVR=$(echo "$SNAPSHOT_JSON" | jq -r '
+        echo "=== Debug: Looking for mta-operator-container ==="
+        OPERATOR_IMAGE=$(echo "$SNAPSHOT_JSON" | $JQ -r '
           .spec.components[] |
           select(.name == "mta-operator-container") |
-          .containerImage |
-          split("@")[0] |
-          split(":")[1]
+          .containerImage
         ')
+        echo "Operator image: $OPERATOR_IMAGE"
+
+        if [ -z "$OPERATOR_IMAGE" ]; then
+          echo "⚠️  WARNING: mta-operator-container component not found!"
+          echo "Available components:"
+          echo "$SNAPSHOT_JSON" | $JQ -r '.spec.components[] | "\(.name) - \(.containerImage)"'
+          OPERATOR_NVR="unknown"
+        else
+          OPERATOR_NVR=$(echo "$OPERATOR_IMAGE" | awk -F'[@:]' '{print $(NF-1)}')
+          echo "Extracted NVR: $OPERATOR_NVR"
+        fi
 
         # Save results
         echo -n "$SNAPSHOT" > $(results.snapshotName.path)

@@ -6,30 +6,19 @@ spec:
   description: |
     MTA Tier-0 UI Tests on Multicloud Platforms
 
-    Provisions fresh cluster (ARO/ROSA/ROSA-STS/OCP-AWS), deploys MTA operator,
-    runs tier-0 UI tests, and destroys the cluster.
-
-    Input: Provide NVR (e.g., mta-operator-container-8.3.0-...) OR Snapshot name
-    The pipeline will resolve NVR to the matching Snapshot automatically.
+    Provisions fresh cluster (ARO/ROSA/ROSA-STS/OCP-AWS), deploys MTA operator
+    from Konflux snapshot, runs tier-0 UI tests, and destroys the cluster.
 
   params:
     - name: SNAPSHOT
-      description: Application Snapshot JSON (auto-provided by ITS)
+      description: Application Snapshot JSON (provided by ITS)
       type: string
-      default: ""
-    - name: nvrOrSnapshot
-      description: "NVR or snapshot name (for manual trigger, e.g., mta-operator-container-8.3.0-...)"
-      type: string
-      default: ""
     - name: clusterType
       description: Cluster type (aro, rosa, rosa-sts, ocp-aws)
       type: string
       default: "aro"
 
   results:
-    - name: SNAPSHOT_NAME
-      description: Snapshot name tested
-      value: $(tasks.get-snapshot.results.snapshotName)
     - name: OPERATOR_NVR
       description: Operator NVR tested
       value: $(tasks.extract-operator-nvr.results.operatorNVR)
@@ -44,69 +33,11 @@ spec:
       value: $(tasks.run-tier0-tests.results.testStatus)
 
   tasks:
-    # Step 1: Resolve NVR to Snapshot (if NVR provided)
-    - name: resolve-snapshot-from-nvr
-      when:
-        - input: "$(params.nvrOrSnapshot)"
-          operator: notin
-          values: [""]
-      params:
-        - name: nvrOrSnapshot
-          value: $(params.nvrOrSnapshot)
-      taskRef:
-        resolver: git
-        params:
-          - name: url
-            value: https://github.com/migtools/mta-konflux-its
-          - name: revision
-            value: fix-tier0-pipeline-validation
-          - name: pathInRepo
-            value: tasks/multicloud/resolve-snapshot-from-nvr.yaml
-
-    # Step 2: Get Snapshot (either from resolution or ITS param)
-    - name: get-snapshot
-      runAfter:
-        - resolve-snapshot-from-nvr
-      params:
-        - name: resolvedSnapshot
-          value: $(tasks.resolve-snapshot-from-nvr.results.snapshotJson)
-        - name: itsSnapshot
-          value: $(params.SNAPSHOT)
-        - name: wasResolved
-          value: "$(params.nvrOrSnapshot)"
-      taskSpec:
-        params:
-          - name: resolvedSnapshot
-          - name: itsSnapshot
-          - name: wasResolved
-        results:
-          - name: snapshotJson
-          - name: snapshotName
-        steps:
-          - name: pick-snapshot
-            image: registry.access.redhat.com/ubi9/ubi-minimal
-            script: |
-              #!/bin/bash
-              set -euo pipefail
-
-              # If NVR was provided, use resolved snapshot
-              if [ -n "$(params.wasResolved)" ]; then
-                echo "Using resolved snapshot from NVR"
-                echo '$(params.resolvedSnapshot)' > $(results.snapshotJson.path)
-                echo '$(params.resolvedSnapshot)' | grep -oP '"name":"\K[^"]+' | head -1 > $(results.snapshotName.path)
-              else
-                echo "Using ITS-provided snapshot"
-                echo '$(params.itsSnapshot)' > $(results.snapshotJson.path)
-                echo '$(params.itsSnapshot)' | grep -oP '"name":"\K[^"]+' | head -1 > $(results.snapshotName.path)
-              fi
-
-    # Step 3: Parse snapshot metadata (extracts component image)
+    # Parse snapshot metadata (extracts FBC component image)
     - name: parse-metadata
-      runAfter:
-        - get-snapshot
       params:
         - name: SNAPSHOT
-          value: $(tasks.get-snapshot.results.snapshotJson)
+          value: $(params.SNAPSHOT)
       taskRef:
         resolver: git
         params:
@@ -117,13 +48,13 @@ spec:
           - name: pathInRepo
             value: tasks/test_metadata.yaml
 
-    # Step 4: Extract operator NVR
+    # Extract operator NVR for reporting
     - name: extract-operator-nvr
       runAfter:
         - parse-metadata
       params:
         - name: snapshotJson
-          value: $(tasks.get-snapshot.results.snapshotJson)
+          value: $(params.SNAPSHOT)
         - name: pipelineRunName
           value: $(context.pipelineRun.name)
       taskRef:
@@ -136,7 +67,7 @@ spec:
           - name: pathInRepo
             value: tasks/extract-operator-nvr.yaml
 
-    # Step 5: Map cluster configuration
+    # Map cluster configuration (profile, region, timeout)
     - name: map-cluster-config
       params:
         - name: clusterType
@@ -151,7 +82,7 @@ spec:
           - name: pathInRepo
             value: tasks/multicloud/map-cluster-profile.yaml
 
-    # Step 6: Provision cluster
+    # Provision fresh cluster
     - name: provision-cluster
       runAfter:
         - extract-operator-nvr
@@ -177,7 +108,7 @@ spec:
           - name: pathInRepo
             value: tasks/ocpctl-provision.yaml
 
-    # Step 7: Deploy MTA operator
+    # Deploy MTA operator
     - name: deploy-operator
       runAfter:
         - provision-cluster
@@ -191,7 +122,7 @@ spec:
         - name: fbcImage
           value: $(tasks.parse-metadata.results.component-container-image)
         - name: snapshotJson
-          value: $(tasks.get-snapshot.results.snapshotJson)
+          value: $(params.SNAPSHOT)
       taskRef:
         resolver: git
         params:
@@ -202,7 +133,7 @@ spec:
           - name: pathInRepo
             value: tasks/deploy-mta-operator.yaml
 
-    # Step 8: Run tier-0 UI tests
+    # Run tier-0 UI tests
     - name: run-tier0-tests
       runAfter:
         - deploy-operator
@@ -257,7 +188,7 @@ spec:
         - name: clusterTypeLabel
           value: $(tasks.map-cluster-config.results.clusterTypeLabel)
         - name: snapshotName
-          value: $(tasks.get-snapshot.results.snapshotName)
+          value: $(tasks.parse-metadata.results.application-name)
         - name: operatorNVR
           value: $(tasks.extract-operator-nvr.results.operatorNVR)
         - name: clusterId
@@ -265,7 +196,7 @@ spec:
         - name: pipelineRunName
           value: $(context.pipelineRun.name)
         - name: triggeredBy
-          value: "manual"
+          value: "its"
       taskRef:
         resolver: git
         params:

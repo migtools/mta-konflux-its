@@ -41,6 +41,10 @@ spec:
         #!/bin/bash
         set -euo pipefail
 
+        # Install jq
+        curl -sL https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64 -o /usr/local/bin/jq
+        chmod +x /usr/local/bin/jq
+
         INPUT="$(params.nvrOrSnapshot)"
         NS="$(params.namespace)"
 

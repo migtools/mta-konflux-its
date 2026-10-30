@@ -36,10 +36,19 @@ spec:
 
   steps:
     - name: resolve
-      image: quay.io/openshift/origin-cli:4.21
+      image: registry.redhat.io/openshift4/ose-cli:latest
       script: |
         #!/bin/bash
         set -euo pipefail
+
+        # Install jq if not available
+        if command -v jq &> /dev/null; then
+          JQ="jq"
+        else
+          curl -sL https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64 -o /tmp/jq
+          chmod +x /tmp/jq
+          JQ="/tmp/jq"
+        fi
 
         INPUT="$(params.nvrOrSnapshot)"
         NS="$(params.namespace)"
@@ -100,13 +109,17 @@ spec:
           echo "NVR detected: $INPUT"
           echo "Searching for snapshot containing this NVR..."
 
-          # Search snapshots for matching NVR in components
+          # Search snapshots for matching NVR in operator-container component
           SNAPSHOT=$(oc get snapshot -n "$NS" \
             -l appstudio.openshift.io/application="$APP" \
             -o json | \
-            jq -r --arg nvr "$INPUT" '
+            $JQ -r --arg nvr "$INPUT" '
               .items[] |
-              select(.spec.components[]?.containerImage? | contains($nvr)) |
+              select(
+                .spec.components[] |
+                select(.name | endswith("-mta-operator-container")) |
+                .containerImage | contains($nvr)
+              ) |
               .metadata.name
             ' | head -1)
 
@@ -143,13 +156,20 @@ spec:
         SNAPSHOT_JSON=$(oc get snapshot "$SNAPSHOT" -n "$NS" -o json)
 
         # Extract operator NVR from components
-        OPERATOR_NVR=$(echo "$SNAPSHOT_JSON" | jq -r '
+        # Component name pattern: fbc-mta-X-Y-mta-operator-container
+        OPERATOR_IMAGE=$(echo "$SNAPSHOT_JSON" | $JQ -r '
           .spec.components[] |
-          select(.name == "mta-operator-container") |
-          .containerImage |
-          split("@")[0] |
-          split(":")[1]
+          select(.name | endswith("-mta-operator-container")) |
+          .containerImage
         ')
+
+        if [ -z "$OPERATOR_IMAGE" ]; then
+          echo "⚠️  WARNING: No component ending with -mta-operator-container found!"
+          OPERATOR_NVR="unknown"
+        else
+          # Extract NVR from image (format: registry/path/name:nvr@sha256:...)
+          OPERATOR_NVR=$(echo "$OPERATOR_IMAGE" | sed 's/@sha256.*//' | sed 's/.*://')
+        fi
 
         # Save results
         echo -n "$SNAPSHOT" > $(results.snapshotName.path)

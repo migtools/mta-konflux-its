@@ -22,6 +22,10 @@ spec:
   results:
     - name: profile
       description: OCPCTL profile name
+    - name: platform
+      description: Cloud platform (aws, azure, gcp)
+    - name: version
+      description: OpenShift version for this profile
     - name: region
       description: Default region for this cluster type
     - name: waitTimeout
@@ -43,24 +47,32 @@ spec:
         case "$CLUSTER_TYPE" in
           aro)
             PROFILE="aro-standard"
-            REGION="eastus"
+            PLATFORM="azure"
+            VERSION="4.21"
+            REGION="us-east-1"
             TIMEOUT="7200"  # 2 hours for ARO
             LABEL="ARO (Azure Red Hat OpenShift)"
             ;;
           rosa)
             PROFILE="rosa-standard"
+            PLATFORM="aws"
+            VERSION="4.21"
             REGION="us-east-1"
             TIMEOUT="5400"  # 1.5 hours for ROSA
             LABEL="ROSA (Red Hat OpenShift Service on AWS)"
             ;;
           rosa-sts)
             PROFILE="rosa-sts-standard"
+            PLATFORM="aws"
+            VERSION="4.21"
             REGION="us-east-1"
             TIMEOUT="5400"  # 1.5 hours for ROSA-STS
             LABEL="ROSA-STS (ROSA with STS)"
             ;;
           ocp-aws)
             PROFILE="aws-sno-ga"
+            PLATFORM="aws"
+            VERSION="4.21"
             REGION="us-east-1"
             TIMEOUT="3600"  # 1 hour for OCP on AWS
             LABEL="OCP-AWS (OpenShift on AWS)"
@@ -74,11 +86,15 @@ spec:
 
         echo "✅ Mapped cluster type:"
         echo "  Profile: $PROFILE"
+        echo "  Platform: $PLATFORM"
+        echo "  Version: $VERSION"
         echo "  Region: $REGION"
         echo "  Timeout: ${TIMEOUT}s"
         echo "  Label: $LABEL"
 
         echo -n "$PROFILE" > $(results.profile.path)
+        echo -n "$PLATFORM" > $(results.platform.path)
+        echo -n "$VERSION" > $(results.version.path)
         echo -n "$REGION" > $(results.region.path)
         echo -n "$TIMEOUT" > $(results.waitTimeout.path)
         echo -n "$LABEL" > $(results.clusterTypeLabel.path)

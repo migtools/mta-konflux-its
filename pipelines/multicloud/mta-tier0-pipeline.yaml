@@ -92,8 +92,10 @@ spec:
           value: "mta-$(params.clusterType)-tier0-$(context.pipelineRun.name)"
         - name: profile
           value: $(tasks.map-cluster-config.results.profile)
+        - name: platform
+          value: $(tasks.map-cluster-config.results.platform)
         - name: version
-          value: "4.22"
+          value: $(tasks.map-cluster-config.results.version)
         - name: region
           value: $(tasks.map-cluster-config.results.region)
         - name: waitTimeout

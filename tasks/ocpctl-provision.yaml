@@ -21,6 +21,10 @@ spec:
       type: string
       default: "aws-sno-ga"
       description: OCPCTL cluster profile
+    - name: platform
+      type: string
+      default: "aws"
+      description: Cloud platform (aws, azure, gcp)
     - name: version
       type: string
       default: "4.21"
@@ -103,7 +107,7 @@ spec:
           -H "Content-Type: application/json" \
           -d "{
             \"name\": \"$CLUSTER_NAME\",
-            \"platform\": \"aws\",
+            \"platform\": \"$(params.platform)\",
             \"cluster_type\": \"openshift\",
             \"version\": \"$(params.version)\",
             \"profile\": \"$(params.profile)\",

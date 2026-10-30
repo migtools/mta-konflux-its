@@ -50,7 +50,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: fix-tier0-pipeline-validation
           - name: pathInRepo
             value: tasks/multicloud/resolve-snapshot-from-nvr.yaml
 
@@ -64,7 +64,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: fix-tier0-pipeline-validation
           - name: pathInRepo
             value: tasks/multicloud/map-cluster-profile.yaml
 
@@ -89,7 +89,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: fix-tier0-pipeline-validation
           - name: pathInRepo
             value: tasks/ocpctl-provision.yaml
 
@@ -142,7 +142,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: fix-tier0-pipeline-validation
           - name: pathInRepo
             value: tasks/deploy-mta-operator.yaml
 
@@ -162,7 +162,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: fix-tier0-pipeline-validation
           - name: pathInRepo
             value: tasks/run-ui-e2e-tests.yaml
 
@@ -181,7 +181,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: fix-tier0-pipeline-validation
           - name: pathInRepo
             value: tasks/ocpctl-pool-release.yaml
 
@@ -213,6 +213,6 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: fix-tier0-pipeline-validation
           - name: pathInRepo
             value: tasks/multicloud/slack-notification-tier0.yaml

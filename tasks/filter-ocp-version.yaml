@@ -31,7 +31,7 @@ spec:
 
   steps:
     - name: check-ocp-version
-      image: registry.access.redhat.com/ubi9/ubi:9.5
+      image: registry.access.redhat.com/ubi9/ubi:9.8-1793179168
       script: |
         #!/bin/bash
         set -euo pipefail

@@ -49,7 +49,7 @@ spec:
             PROFILE="aro-standard"
             PLATFORM="azure"
             VERSION="4.21"
-            REGION="eastus"
+            REGION="us-east-1"
             TIMEOUT="7200"  # 2 hours for ARO
             LABEL="ARO (Azure Red Hat OpenShift)"
             ;;

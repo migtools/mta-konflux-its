@@ -48,15 +48,15 @@ spec:
           aro)
             PROFILE="aro-standard"
             PLATFORM="azure"
-            VERSION="4.21"
-            REGION="us-east-1"
+            VERSION="4.22"
+            REGION="eastus"
             TIMEOUT="7200"  # 2 hours for ARO
             LABEL="ARO (Azure Red Hat OpenShift)"
             ;;
           rosa)
             PROFILE="rosa-standard"
             PLATFORM="aws"
-            VERSION="4.21"
+            VERSION="4.22"
             REGION="us-east-1"
             TIMEOUT="5400"  # 1.5 hours for ROSA
             LABEL="ROSA (Red Hat OpenShift Service on AWS)"
@@ -64,7 +64,7 @@ spec:
           rosa-sts)
             PROFILE="rosa-sts-standard"
             PLATFORM="aws"
-            VERSION="4.21"
+            VERSION="4.22"
             REGION="us-east-1"
             TIMEOUT="5400"  # 1.5 hours for ROSA-STS
             LABEL="ROSA-STS (ROSA with STS)"
@@ -72,7 +72,7 @@ spec:
           ocp-aws)
             PROFILE="aws-sno-ga"
             PLATFORM="aws"
-            VERSION="4.21"
+            VERSION="4.22"
             REGION="us-east-1"
             TIMEOUT="3600"  # 1 hour for OCP on AWS
             LABEL="OCP-AWS (OpenShift on AWS)"

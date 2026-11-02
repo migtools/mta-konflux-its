@@ -98,8 +98,20 @@ spec:
         RAW_NAME="$(params.clusterName)"
         CLUSTER_NAME="mta-$(echo "$RAW_NAME" | tr -d '-' | head -c 13)"
 
+        echo "======================================"
         echo "Creating OCPCTL cluster: $CLUSTER_NAME"
-        echo "  profile=$(params.profile) version=$(params.version) region=$(params.region)"
+        echo "======================================"
+        echo "API Parameters:"
+        echo "  URL: $OCPCTL_URL/clusters"
+        echo "  platform: $(params.platform)"
+        echo "  profile: $(params.profile)"
+        echo "  version: $(params.version)"
+        echo "  region: $(params.region)"
+        echo "  base_domain: $(params.baseDomain)"
+        echo "  owner: $(params.owner)"
+        echo "  team: $(params.team)"
+        echo "  cost_center: $(params.costCenter)"
+        echo "======================================"
 
         RESPONSE=$(curl -s --insecure -w "\n%{http_code}" \
           -X POST "$OCPCTL_URL/clusters" \

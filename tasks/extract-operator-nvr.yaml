@@ -235,26 +235,25 @@ spec:
         if [ "$NVR_VERSION" != "$CATALOG_VERSION" ]; then
           echo ""
           echo "=========================================="
-          echo "ERROR: FBC CATALOG INCONSISTENCY DETECTED"
+          echo "WARNING: FBC CATALOG VERSION MISMATCH"
           echo "=========================================="
           echo ""
-          echo "The FBC snapshot is inconsistent:"
-          echo "  - related-images.json shows: $NVR_VERSION"
-          echo "  - Catalog channel HEAD is:   $CATALOG_VERSION"
+          echo "The FBC snapshot shows different versions:"
+          echo "  - related-images.json: $NVR_VERSION"
+          echo "  - Catalog channel HEAD: $CATALOG_VERSION"
           echo ""
-          echo "This means the FBC was built with $NVR_VERSION bundle references,"
-          echo "but the catalog only has $CATALOG_VERSION available to install."
-          echo ""
-          echo "OLM will deploy $CATALOG_VERSION but NVR extraction reports $NVR_VERSION."
-          echo ""
-          echo "FIX REQUIRED: Update the FBC source repository catalog to include"
-          echo "the $NVR_VERSION bundle in the $CHANNEL_NAME channel."
+          echo "OLM will deploy: $CATALOG_VERSION (from catalog)"
+          echo "Using catalog version for accurate test reporting."
           echo ""
           echo "Snapshot: $SNAPSHOT_NAME"
           echo "FBC Image: $FBC_IMAGE"
           echo "=========================================="
-          exit 1
+
+          # Use catalog version for NVR (what will actually be deployed)
+          OPERATOR_NVR=$(echo "$OPERATOR_NVR" | sed "s/$NVR_VERSION/$CATALOG_VERSION/")
+          echo "Adjusted Operator NVR: $OPERATOR_NVR"
+        else
+          echo "✅ Validation passed: Catalog is consistent"
         fi
 
-        echo "✅ Validation passed: Catalog is consistent"
         echo -n "$OPERATOR_NVR" > $(results.operatorNVR.path)

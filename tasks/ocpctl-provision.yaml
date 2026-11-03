@@ -25,6 +25,10 @@ spec:
       type: string
       default: "aws"
       description: Cloud platform (aws, azure, gcp)
+    - name: clusterType
+      type: string
+      default: "openshift"
+      description: OCPCTL cluster type (rosa, aro, openshift)
     - name: version
       type: string
       default: "4.21"
@@ -104,6 +108,7 @@ spec:
         echo "API Parameters:"
         echo "  URL: $OCPCTL_URL/clusters"
         echo "  platform: $(params.platform)"
+        echo "  cluster_type: $(params.clusterType)"
         echo "  profile: $(params.profile)"
         echo "  version: $(params.version)"
         echo "  region: $(params.region)"
@@ -120,7 +125,7 @@ spec:
           -d "{
             \"name\": \"$CLUSTER_NAME\",
             \"platform\": \"$(params.platform)\",
-            \"cluster_type\": \"openshift\",
+            \"cluster_type\": \"$(params.clusterType)\",
             \"version\": \"$(params.version)\",
             \"profile\": \"$(params.profile)\",
             \"region\": \"$(params.region)\",

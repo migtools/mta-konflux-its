@@ -94,6 +94,8 @@ spec:
           value: $(tasks.map-cluster-config.results.profile)
         - name: platform
           value: $(tasks.map-cluster-config.results.platform)
+        - name: clusterType
+          value: $(tasks.map-cluster-config.results.clusterType)
         - name: version
           value: $(tasks.map-cluster-config.results.version)
         - name: region

@@ -24,6 +24,8 @@ spec:
       description: OCPCTL profile name
     - name: platform
       description: Cloud platform (aws, azure, gcp)
+    - name: clusterType
+      description: OCPCTL cluster type (rosa, aro, openshift)
     - name: version
       description: OpenShift version for this profile
     - name: region
@@ -48,6 +50,7 @@ spec:
           aro)
             PROFILE="aro-standard"
             PLATFORM="azure"
+            OCPCTL_CLUSTER_TYPE="aro"
             VERSION="4.22"
             REGION="eastus"
             TIMEOUT="7200"  # 2 hours for ARO
@@ -56,6 +59,7 @@ spec:
           rosa)
             PROFILE="rosa-standard"
             PLATFORM="aws"
+            OCPCTL_CLUSTER_TYPE="rosa"
             VERSION="4.22"
             REGION="us-east-1"
             TIMEOUT="5400"  # 1.5 hours for ROSA
@@ -64,6 +68,7 @@ spec:
           rosa-sts)
             PROFILE="rosa-sts-standard"
             PLATFORM="aws"
+            OCPCTL_CLUSTER_TYPE="rosa"
             VERSION="4.22"
             REGION="us-east-1"
             TIMEOUT="5400"  # 1.5 hours for ROSA-STS
@@ -72,6 +77,7 @@ spec:
           ocp-aws)
             PROFILE="aws-sno-ga"
             PLATFORM="aws"
+            OCPCTL_CLUSTER_TYPE="openshift"
             VERSION="4.22"
             REGION="us-east-1"
             TIMEOUT="3600"  # 1 hour for OCP on AWS
@@ -87,6 +93,7 @@ spec:
         echo "✅ Mapped cluster type:"
         echo "  Profile: $PROFILE"
         echo "  Platform: $PLATFORM"
+        echo "  Cluster Type: $OCPCTL_CLUSTER_TYPE"
         echo "  Version: $VERSION"
         echo "  Region: $REGION"
         echo "  Timeout: ${TIMEOUT}s"
@@ -94,6 +101,7 @@ spec:
 
         echo -n "$PROFILE" > $(results.profile.path)
         echo -n "$PLATFORM" > $(results.platform.path)
+        echo -n "$OCPCTL_CLUSTER_TYPE" > $(results.clusterType.path)
         echo -n "$VERSION" > $(results.version.path)
         echo -n "$REGION" > $(results.region.path)
         echo -n "$TIMEOUT" > $(results.waitTimeout.path)

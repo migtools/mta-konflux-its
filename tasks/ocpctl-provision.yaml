@@ -112,17 +112,22 @@ spec:
         echo "  profile: $(params.profile)"
         echo "  version: $(params.version)"
         echo "  region: $(params.region)"
-        echo "  base_domain: $(params.baseDomain)"
+
+        # base_domain only for openshift cluster type (not rosa/aro)
+        if [ "$(params.clusterType)" = "openshift" ]; then
+          echo "  base_domain: $(params.baseDomain)"
+        else
+          echo "  base_domain: (not applicable for $(params.clusterType))"
+        fi
+
         echo "  owner: $(params.owner)"
         echo "  team: $(params.team)"
         echo "  cost_center: $(params.costCenter)"
         echo "======================================"
 
-        RESPONSE=$(curl -s --insecure -w "\n%{http_code}" \
-          -X POST "$OCPCTL_URL/clusters" \
-          -H "Authorization: Bearer $OCPCTL_API_KEY" \
-          -H "Content-Type: application/json" \
-          -d "{
+        # Build JSON payload conditionally
+        if [ "$(params.clusterType)" = "openshift" ]; then
+          PAYLOAD="{
             \"name\": \"$CLUSTER_NAME\",
             \"platform\": \"$(params.platform)\",
             \"cluster_type\": \"$(params.clusterType)\",
@@ -133,7 +138,26 @@ spec:
             \"owner\": \"$(params.owner)\",
             \"team\": \"$(params.team)\",
             \"cost_center\": \"$(params.costCenter)\"
-          }")
+          }"
+        else
+          PAYLOAD="{
+            \"name\": \"$CLUSTER_NAME\",
+            \"platform\": \"$(params.platform)\",
+            \"cluster_type\": \"$(params.clusterType)\",
+            \"version\": \"$(params.version)\",
+            \"profile\": \"$(params.profile)\",
+            \"region\": \"$(params.region)\",
+            \"owner\": \"$(params.owner)\",
+            \"team\": \"$(params.team)\",
+            \"cost_center\": \"$(params.costCenter)\"
+          }"
+        fi
+
+        RESPONSE=$(curl -s --insecure -w "\n%{http_code}" \
+          -X POST "$OCPCTL_URL/clusters" \
+          -H "Authorization: Bearer $OCPCTL_API_KEY" \
+          -H "Content-Type: application/json" \
+          -d "$PAYLOAD")
 
         HTTP_CODE=$(echo "$RESPONSE" | tail -1)
         BODY=$(echo "$RESPONSE" | sed '$d')

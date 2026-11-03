@@ -100,7 +100,9 @@ spec:
 
         OCPCTL_URL="$(params.ocpctlUrl)"
         RAW_NAME="$(params.clusterName)"
-        CLUSTER_NAME="mta-$(echo "$RAW_NAME" | tr -d '-' | head -c 13)"
+        # Sanitize: remove dashes, truncate to 21 chars (OCPCTL limit)
+        # Example: mta-tier0-aro-9c458 -> mtatier0aro9c458
+        CLUSTER_NAME=$(echo "$RAW_NAME" | tr -d '-' | head -c 21)
 
         echo "======================================"
         echo "Creating OCPCTL cluster: $CLUSTER_NAME"

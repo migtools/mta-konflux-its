@@ -89,7 +89,7 @@ spec:
         - map-cluster-config
       params:
         - name: clusterName
-          value: "mta-$(params.clusterType)-tier0-$(context.pipelineRun.name)"
+          value: "$(context.pipelineRun.name)"
         - name: profile
           value: $(tasks.map-cluster-config.results.profile)
         - name: platform

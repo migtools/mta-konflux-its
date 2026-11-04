@@ -100,9 +100,11 @@ spec:
 
         OCPCTL_URL="$(params.ocpctlUrl)"
         RAW_NAME="$(params.clusterName)"
-        # Sanitize: remove dashes, truncate to 21 chars (OCPCTL limit)
-        # Example: mta-tier0-aro-9c458 -> mtatier0aro9c458
-        CLUSTER_NAME=$(echo "$RAW_NAME" | tr -d '-' | head -c 21)
+        # Extract unique suffix (last part after last dash)
+        # Construct: kflx-mta-{clusterType}-{suffix}
+        # Example: mta-tier0-aro-9c458 -> kflx-mta-aro-9c458
+        SUFFIX=$(echo "$RAW_NAME" | rev | cut -d'-' -f1 | rev)
+        CLUSTER_NAME=$(echo "kflx-mta-$(params.clusterType)-${SUFFIX}" | head -c 21)
 
         echo "======================================"
         echo "Creating OCPCTL cluster: $CLUSTER_NAME"

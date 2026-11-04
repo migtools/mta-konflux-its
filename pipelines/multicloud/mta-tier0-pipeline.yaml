@@ -127,6 +127,8 @@ spec:
           value: $(tasks.parse-metadata.results.component-container-image)
         - name: snapshotJson
           value: $(params.SNAPSHOT)
+        - name: configureRegistryMirror
+          value: "true"  # Add stage registry credentials to global pull secret
       taskRef:
         resolver: git
         params:

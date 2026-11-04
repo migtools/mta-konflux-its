@@ -121,27 +121,26 @@ spec:
 
               echo "Looking up cluster ID for: $CLUSTER_NAME"
 
-              # Install python3 for JSON parsing
-              microdnf install -y python3 || true
+              # Install jq for JSON parsing
+              if ! command -v jq &> /dev/null; then
+                curl -sL https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64 -o /usr/local/bin/jq
+                chmod +x /usr/local/bin/jq
+              fi
 
               # Get all clusters and find matching name
               RESPONSE=$(curl -s --insecure -H "Authorization: Bearer $OCPCTL_API_KEY" "$OCPCTL_URL/clusters")
 
-              CLUSTER_ID=$(echo "$RESPONSE" | python3 -c "
-              import sys, json
-              try:
-                  data = json.load(sys.stdin)
-                  clusters = data.get('clusters', [])
-                  for cluster in clusters:
-                      if cluster.get('name') == '$CLUSTER_NAME':
-                          print(cluster.get('id', ''))
-                          break
-              except:
-                  pass
-              ")
+              # Debug: show first cluster to verify response format
+              echo "API response sample:"
+              echo "$RESPONSE" | jq -r '.clusters[0] // "No clusters"' 2>/dev/null | head -5
+
+              CLUSTER_ID=$(echo "$RESPONSE" | jq -r --arg name "$CLUSTER_NAME" '.clusters[] | select(.name == $name) | .id' 2>/dev/null | head -1)
 
               if [ -z "$CLUSTER_ID" ]; then
                 echo "❌ Cluster not found: $CLUSTER_NAME"
+                echo ""
+                echo "Available clusters:"
+                echo "$RESPONSE" | jq -r '.clusters[].name' 2>/dev/null | head -10
                 exit 1
               fi
 

@@ -198,10 +198,10 @@ spec:
           export PATH="/tmp:$PATH"
         fi
 
-        # Step 1: Check if MachineConfigPools exist (indicates non-managed cluster)
+        # Step 1: Check if MachineConfigPools exist (supports IDMS on ROSA/ARO)
         echo ""
         echo "Step 1: Checking cluster type..."
-        if oc api-resources | grep -q "machineconfigpools"; then
+        if oc get mcp &>/dev/null; then
           MCP_EXISTS="true"
           echo "✅ MachineConfigPools found - cluster supports IDMS"
         else

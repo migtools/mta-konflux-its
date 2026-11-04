@@ -82,35 +82,73 @@ spec:
           - name: pathInRepo
             value: tasks/multicloud/map-cluster-profile.yaml
 
-    # Provision fresh cluster
+    # TEMPORARY: Use existing cluster (skip provisioning to save time)
     - name: provision-cluster
       runAfter:
         - extract-operator-nvr
         - map-cluster-config
       params:
         - name: clusterName
-          value: "$(context.pipelineRun.name)"
-        - name: profile
-          value: $(tasks.map-cluster-config.results.profile)
-        - name: platform
-          value: $(tasks.map-cluster-config.results.platform)
-        - name: clusterType
-          value: $(tasks.map-cluster-config.results.clusterType)
-        - name: version
-          value: $(tasks.map-cluster-config.results.version)
-        - name: region
-          value: $(tasks.map-cluster-config.results.region)
-        - name: waitTimeout
-          value: $(tasks.map-cluster-config.results.waitTimeout)
-      taskRef:
-        resolver: git
+          value: "kflx-mta-rosa-l2wh4"  # Hardcoded existing cluster
+        - name: ocpctlSecretName
+          value: "ocpctl-ci-key"
+        - name: ocpctlUrl
+          value: "https://ocpctl.apps.cnv2.engineering.redhat.com/api/v1"
+      taskSpec:
         params:
-          - name: url
-            value: https://github.com/migtools/mta-konflux-its
-          - name: revision
-            value: fix-tier0-pipeline-validation
-          - name: pathInRepo
-            value: tasks/multicloud/ocpctl-provision.yaml
+          - name: clusterName
+          - name: ocpctlSecretName
+          - name: ocpctlUrl
+        results:
+          - name: clusterId
+          - name: clusterName
+          - name: provisionStatus
+        steps:
+          - name: lookup-cluster-id
+            image: registry.access.redhat.com/ubi9/ubi
+            env:
+              - name: OCPCTL_API_KEY
+                valueFrom:
+                  secretKeyRef:
+                    name: $(params.ocpctlSecretName)
+                    key: api-key
+            script: |
+              #!/bin/bash
+              set -euo pipefail
+
+              CLUSTER_NAME="$(params.clusterName)"
+              OCPCTL_URL="$(params.ocpctlUrl)"
+
+              echo "Looking up cluster ID for: $CLUSTER_NAME"
+
+              # Install python3 for JSON parsing
+              microdnf install -y python3 || true
+
+              # Get all clusters and find matching name
+              RESPONSE=$(curl -s --insecure -H "Authorization: Bearer $OCPCTL_API_KEY" "$OCPCTL_URL/clusters")
+
+              CLUSTER_ID=$(echo "$RESPONSE" | python3 -c "
+              import sys, json
+              try:
+                  data = json.load(sys.stdin)
+                  clusters = data.get('clusters', [])
+                  for cluster in clusters:
+                      if cluster.get('name') == '$CLUSTER_NAME':
+                          print(cluster.get('id', ''))
+                          break
+              except:
+                  pass
+              ")
+
+              if [ -z "$CLUSTER_ID" ]; then
+                echo "❌ Cluster not found: $CLUSTER_NAME"
+                exit 1
+              fi
+
+              echo "✅ Found cluster ID: $CLUSTER_ID"
+              echo -n "$CLUSTER_NAME" > $(results.clusterName.path)
+              echo -n "$CLUSTER_ID" > $(results.clusterId.path)
+              echo -n "READY" > $(results.provisionStatus.path)
 
     # Deploy MTA operator (uses multicloud task for ROSA/ARO)
     - name: deploy-operator
@@ -161,12 +199,12 @@ spec:
             value: tasks/run-ui-e2e-tests.yaml
 
   finally:
-    # Always destroy cluster
+    # TEMPORARY: Skip destroy - using existing cluster for testing
     - name: destroy-cluster
       when:
         - input: "$(tasks.provision-cluster.status)"
           operator: in
-          values: ["Succeeded"]
+          values: ["NeverMatch"]  # Disabled - preserving cluster for reuse
       params:
         - name: clusterId
           value: $(tasks.provision-cluster.results.clusterId)

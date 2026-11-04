@@ -110,7 +110,7 @@ spec:
           - name: revision
             value: fix-tier0-pipeline-validation
           - name: pathInRepo
-            value: tasks/ocpctl-provision.yaml
+            value: tasks/multicloud/ocpctl-provision.yaml
 
     # Deploy MTA operator (uses multicloud task for ROSA/ARO)
     - name: deploy-operator

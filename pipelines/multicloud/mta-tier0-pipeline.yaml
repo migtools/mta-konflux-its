@@ -90,63 +90,25 @@ spec:
       params:
         - name: clusterName
           value: "kflx-mta-rosa-l2wh4"  # Hardcoded existing cluster
-        - name: ocpctlSecretName
-          value: "ocpctl-ci-key"
-        - name: ocpctlUrl
-          value: "https://ocpctl.apps.cnv2.engineering.redhat.com/api/v1"
+        - name: clusterId
+          value: "16456e3f-909f-4891-b79e-cc1de5178f25"  # Hardcoded UUID
       taskSpec:
         params:
           - name: clusterName
-          - name: ocpctlSecretName
-          - name: ocpctlUrl
+          - name: clusterId
         results:
           - name: clusterId
           - name: clusterName
           - name: provisionStatus
         steps:
-          - name: lookup-cluster-id
-            image: registry.access.redhat.com/ubi9/ubi
-            env:
-              - name: OCPCTL_API_KEY
-                valueFrom:
-                  secretKeyRef:
-                    name: $(params.ocpctlSecretName)
-                    key: api-key
+          - name: use-existing-cluster
+            image: registry.access.redhat.com/ubi9/ubi-minimal
             script: |
               #!/bin/bash
-              set -euo pipefail
-
-              CLUSTER_NAME="$(params.clusterName)"
-              OCPCTL_URL="$(params.ocpctlUrl)"
-
-              echo "Looking up cluster ID for: $CLUSTER_NAME"
-
-              # Install jq for JSON parsing
-              if ! command -v jq &> /dev/null; then
-                curl -sL https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64 -o /usr/local/bin/jq
-                chmod +x /usr/local/bin/jq
-              fi
-
-              # Get all clusters and find matching name
-              RESPONSE=$(curl -s --insecure -H "Authorization: Bearer $OCPCTL_API_KEY" "$OCPCTL_URL/clusters")
-
-              # Debug: show first cluster to verify response format
-              echo "API response sample:"
-              echo "$RESPONSE" | jq -r '.clusters[0] // "No clusters"' 2>/dev/null | head -5
-
-              CLUSTER_ID=$(echo "$RESPONSE" | jq -r --arg name "$CLUSTER_NAME" '.clusters[] | select(.name == $name) | .id' 2>/dev/null | head -1)
-
-              if [ -z "$CLUSTER_ID" ]; then
-                echo "❌ Cluster not found: $CLUSTER_NAME"
-                echo ""
-                echo "Available clusters:"
-                echo "$RESPONSE" | jq -r '.clusters[].name' 2>/dev/null | head -10
-                exit 1
-              fi
-
-              echo "✅ Found cluster ID: $CLUSTER_ID"
-              echo -n "$CLUSTER_NAME" > $(results.clusterName.path)
-              echo -n "$CLUSTER_ID" > $(results.clusterId.path)
+              echo "Using existing cluster: $(params.clusterName)"
+              echo "Cluster UUID: $(params.clusterId)"
+              echo -n "$(params.clusterName)" > $(results.clusterName.path)
+              echo -n "$(params.clusterId)" > $(results.clusterId.path)
               echo -n "READY" > $(results.provisionStatus.path)
 
     # Deploy MTA operator (uses multicloud task for ROSA/ARO)

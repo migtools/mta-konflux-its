@@ -112,7 +112,7 @@ spec:
           - name: pathInRepo
             value: tasks/ocpctl-provision.yaml
 
-    # Deploy MTA operator
+    # Deploy MTA operator (uses multicloud task for ROSA/ARO)
     - name: deploy-operator
       runAfter:
         - provision-cluster
@@ -128,7 +128,7 @@ spec:
         - name: snapshotJson
           value: $(params.SNAPSHOT)
         - name: configureRegistryMirror
-          value: "true"  # Add stage registry credentials to global pull secret
+          value: "true"  # IDMS setup for stage registry mirrors
       taskRef:
         resolver: git
         params:
@@ -137,7 +137,7 @@ spec:
           - name: revision
             value: fix-tier0-pipeline-validation
           - name: pathInRepo
-            value: tasks/deploy-mta-operator.yaml
+            value: tasks/multicloud/deploy-mta-operator-multicloud.yaml
 
     # Run tier-0 UI tests
     - name: run-tier0-tests

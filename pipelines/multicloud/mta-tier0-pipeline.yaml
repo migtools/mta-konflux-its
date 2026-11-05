@@ -189,6 +189,8 @@ spec:
       params:
         - name: clusterId
           value: $(tasks.provision-cluster.results.clusterId)
+        - name: clusterName
+          value: $(tasks.provision-cluster.results.clusterName)
       taskRef:
         resolver: git
         params:
@@ -197,7 +199,7 @@ spec:
           - name: revision
             value: fix-tier0-pipeline-validation
           - name: pathInRepo
-            value: tasks/ocpctl-pool-release.yaml
+            value: tasks/ocpctl-cleanup.yaml
 
     # Send Slack notification
     - name: send-slack-notification

@@ -48,10 +48,29 @@ spec:
           - name: pathInRepo
             value: tasks/test_metadata.yaml
 
+    # Filter by OCP version - only allow tier0 tests on 4.22
+    - name: filter-ocp-version
+      runAfter:
+        - parse-metadata
+      params:
+        - name: pipelineRunName
+          value: $(context.pipelineRun.name)
+        - name: allowedOcpVersions
+          value: "4.22"
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: fix-tier0-pipeline-validation
+          - name: pathInRepo
+            value: tasks/filter-ocp-version.yaml
+
     # Extract operator NVR for reporting
     - name: extract-operator-nvr
       runAfter:
-        - parse-metadata
+        - filter-ocp-version
       params:
         - name: snapshotJson
           value: $(params.SNAPSHOT)

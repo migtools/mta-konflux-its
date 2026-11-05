@@ -42,8 +42,8 @@ spec:
       description: User who triggered the test
     - name: slackWebhookSecretName
       type: string
-      default: "slack-webhook-tier0"
-      description: Name of the Kubernetes Secret containing Slack webhook URL for tier0 notifications
+      default: "slack-webhook-multicloud"
+      description: Name of the Kubernetes Secret containing Slack webhook URL for multicloud tier0 notifications
     - name: slackWebhookSecretKey
       type: string
       default: "url"

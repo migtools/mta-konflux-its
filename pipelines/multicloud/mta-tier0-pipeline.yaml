@@ -101,34 +101,35 @@ spec:
           - name: pathInRepo
             value: tasks/multicloud/map-cluster-profile.yaml
 
-    # TEMPORARY: Use existing cluster (skip provisioning to save time)
+    # Provision fresh cluster via OCPCTL
     - name: provision-cluster
       runAfter:
         - extract-operator-nvr
         - map-cluster-config
       params:
         - name: clusterName
-          value: "kflx-mta-rosa-l2wh4"  # Hardcoded existing cluster
-        - name: clusterId
-          value: "16456e3f-909f-4891-b79e-cc1de5178f25"  # Hardcoded UUID
-      taskSpec:
+          value: $(context.pipelineRun.name)
+        - name: profile
+          value: $(tasks.map-cluster-config.results.profile)
+        - name: platform
+          value: $(tasks.map-cluster-config.results.platform)
+        - name: clusterType
+          value: $(tasks.map-cluster-config.results.clusterType)
+        - name: version
+          value: $(tasks.map-cluster-config.results.version)
+        - name: region
+          value: $(tasks.map-cluster-config.results.region)
+        - name: waitTimeout
+          value: $(tasks.map-cluster-config.results.waitTimeout)
+      taskRef:
+        resolver: git
         params:
-          - name: clusterName
-          - name: clusterId
-        results:
-          - name: clusterId
-          - name: clusterName
-          - name: provisionStatus
-        steps:
-          - name: use-existing-cluster
-            image: registry.access.redhat.com/ubi9/ubi-minimal
-            script: |
-              #!/bin/bash
-              echo "Using existing cluster: $(params.clusterName)"
-              echo "Cluster UUID: $(params.clusterId)"
-              echo -n "$(params.clusterName)" > $(results.clusterName.path)
-              echo -n "$(params.clusterId)" > $(results.clusterId.path)
-              echo -n "READY" > $(results.provisionStatus.path)
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: fix-tier0-pipeline-validation
+          - name: pathInRepo
+            value: tasks/multicloud/ocpctl-provision.yaml
 
     # Deploy MTA operator (uses multicloud task for ROSA/ARO)
     - name: deploy-operator
@@ -179,12 +180,12 @@ spec:
             value: tasks/run-ui-e2e-tests.yaml
 
   finally:
-    # TEMPORARY: Skip destroy - using existing cluster for testing
+    # Destroy cluster after tests complete
     - name: destroy-cluster
       when:
         - input: "$(tasks.provision-cluster.status)"
           operator: in
-          values: ["NeverMatch"]  # Disabled - preserving cluster for reuse
+          values: ["Succeeded"]
       params:
         - name: clusterId
           value: $(tasks.provision-cluster.results.clusterId)

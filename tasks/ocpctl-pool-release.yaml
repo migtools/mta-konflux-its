@@ -32,7 +32,7 @@ spec:
 
   steps:
     - name: release-cluster
-      image: registry.access.redhat.com/ubi9/ubi@sha256:e79f79172a6779775e1733cb4f49cd5ef03a0703c68ec46c717f93b9ac4a5e71
+      image: registry.access.redhat.com/ubi9/ubi@sha256:1963e00991088221a3405be7eb315a3dbc0be0f1f7440f0bd537d481cf33c83e
       env:
         - name: OCPCTL_API_KEY
           valueFrom:

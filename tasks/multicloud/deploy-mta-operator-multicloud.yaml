@@ -182,77 +182,28 @@ spec:
         #!/bin/bash
         set -euo pipefail
 
-        if [ "$(params.configureRegistryMirror)" != "true" ]; then
-          echo "Registry configuration skipped"
-          exit 0
-        fi
+        [ "$(params.configureRegistryMirror)" != "true" ] && exit 0
 
-        echo "======================================"
-        echo "Configuring Stage Registry Access"
-        echo "======================================"
-
-        # Install jq for JSON merging
-        if ! command -v jq &> /dev/null; then
+        command -v jq &>/dev/null || {
           curl -sL https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64 -o /tmp/jq
           chmod +x /tmp/jq
           export PATH="/tmp:$PATH"
-        fi
+        }
 
-        # Step 1: Check if MachineConfigPools exist (supports IDMS on ROSA/ARO)
-        echo ""
-        echo "Step 1: Checking cluster type..."
         if oc get mcp &>/dev/null; then
           MCP_EXISTS="true"
-          echo "✅ MachineConfigPools found - cluster supports IDMS"
-        else
-          MCP_EXISTS="false"
-          echo "⚠️  No MachineConfigPools - managed cluster, skipping IDMS"
-        fi
 
-        # Step 2: Delete ROSA validation webhooks (allows IDMS creation on ROSA)
-        if [ "$MCP_EXISTS" = "true" ]; then
-          echo ""
-          echo "Step 2: Removing ROSA validation webhooks..."
-          oc delete ValidatingWebhookConfiguration sre-imagecontentpolicies-validation 2>/dev/null || echo "  (webhook not found - already deleted or not ROSA)"
-          oc delete ValidatingWebhookConfiguration sre-regular-user-validation 2>/dev/null || echo "  (webhook not found - already deleted or not ROSA)"
-          echo "✅ Webhooks removed"
-        fi
-
-        # Step 3: Pause MachineConfigPools
-        if [ "$MCP_EXISTS" = "true" ]; then
-          echo ""
-          echo "Step 3: Pausing MachineConfigPools..."
+          oc delete ValidatingWebhookConfiguration sre-imagecontentpolicies-validation sre-regular-user-validation 2>/dev/null || true
           oc patch --type=merge --patch='{"spec":{"paused": true}}' $(oc get mcp -o name)
-          echo "✅ MCPs paused"
-        fi
 
-        # Step 4: Update pull secret with stage registry credentials
-        echo ""
-        echo "Step 4: Adding registry.stage.redhat.io credentials to global pull secret..."
+          oc get secret pull-secret -n openshift-config -o jsonpath='{.data.\.dockerconfigjson}' | base64 -d > /tmp/current.json
 
-        oc get secret pull-secret -n openshift-config -o jsonpath='{.data.\.dockerconfigjson}' | \
-          base64 -d > /tmp/current-pull-secret.json
-
-        if [ -f /stage-pull-secret/.dockerconfigjson ]; then
-          # Check if stage registry already exists
-          if jq -e '.auths."registry.stage.redhat.io"' /tmp/current-pull-secret.json &>/dev/null; then
-            echo "  registry.stage.redhat.io credentials already present"
-          else
-            echo "  Merging stage registry credentials..."
-            jq -s '.[0] * .[1]' /tmp/current-pull-secret.json /stage-pull-secret/.dockerconfigjson > /tmp/merged-pull-secret.json
-            oc set data secret/pull-secret -n openshift-config \
-              --from-file=.dockerconfigjson=/tmp/merged-pull-secret.json
-            echo "  ✅ Pull secret updated"
+          if [ -f /stage-pull-secret/.dockerconfigjson ]; then
+            jq -e '.auths."registry.stage.redhat.io"' /tmp/current.json &>/dev/null || {
+              jq -s '.[0] * .[1]' /tmp/current.json /stage-pull-secret/.dockerconfigjson > /tmp/merged.json
+              oc set data secret/pull-secret -n openshift-config --from-file=.dockerconfigjson=/tmp/merged.json
+            }
           fi
-        else
-          echo "  ⚠️  WARNING: Stage pull secret not found at /stage-pull-secret/.dockerconfigjson"
-          exit 1
-        fi
-
-        # Step 5: Create ImageDigestMirrorSet
-        if [ "$MCP_EXISTS" = "true" ]; then
-          echo ""
-          echo "Step 5: Creating ImageDigestMirrorSet..."
 
           cat <<'EOF' | oc apply -f -
         apiVersion: config.openshift.io/v1
@@ -261,57 +212,26 @@ spec:
           name: stage-images-mirror-set
         spec:
           imageDigestMirrors:
-          - mirrors:
-            - registry.stage.redhat.io/mta/mta-analyzer-addon-rhel9
+          - mirrors: [registry.stage.redhat.io/mta/mta-analyzer-addon-rhel9]
             source: registry.redhat.io/mta/mta-analyzer-addon-rhel9
-          - mirrors:
-            - registry.stage.redhat.io/mta/mta-cli-rhel9
+          - mirrors: [registry.stage.redhat.io/mta/mta-cli-rhel9]
             source: registry.redhat.io/mta/mta-cli-rhel9
-          - mirrors:
-            - registry.stage.redhat.io/mta/mta-hub-rhel9
+          - mirrors: [registry.stage.redhat.io/mta/mta-hub-rhel9]
             source: registry.redhat.io/mta/mta-hub-rhel9
-          - mirrors:
-            - registry.stage.redhat.io/mta/mta-operator-bundle
+          - mirrors: [registry.stage.redhat.io/mta/mta-operator-bundle]
             source: registry.redhat.io/mta/mta-operator-bundle
-          - mirrors:
-            - registry.stage.redhat.io/mta/mta-rhel9-operator
+          - mirrors: [registry.stage.redhat.io/mta/mta-rhel9-operator]
             source: registry.redhat.io/mta/mta-rhel9-operator
-          - mirrors:
-            - registry.stage.redhat.io/mta/mta-ui-rhel9
+          - mirrors: [registry.stage.redhat.io/mta/mta-ui-rhel9]
             source: registry.redhat.io/mta/mta-ui-rhel9
-          - mirrors:
-            - registry.stage.redhat.io/rhel8/postgresql-12
+          - mirrors: [registry.stage.redhat.io/rhel8/postgresql-12]
             source: registry.redhat.io/rhel8/postgresql-12
         EOF
 
-          echo "  ✅ ImageDigestMirrorSet created"
-        fi
-
-        # Step 6: Resume MCP and wait for update
-        if [ "$MCP_EXISTS" = "true" ]; then
-          echo ""
-          echo "Step 6: Resuming MachineConfigPools..."
           oc patch --type=merge --patch='{"spec":{"paused": false}}' $(oc get mcp -o name)
-          echo "  ✅ MCPs resumed"
-
-          echo ""
-          echo "Step 7: Waiting for MCPs to start updating..."
-          if oc wait mcp master worker --for condition=updating --timeout=2m 2>/dev/null; then
-            echo "  ✅ MCPs updating"
-          else
-            echo "  ⚠️  MCPs did not enter updating state (might update later)"
-          fi
-
-          echo ""
-          echo "Step 8: Waiting for MCPs to finish updating (timeout: 60m)..."
+          oc wait mcp master worker --for condition=updating --timeout=2m 2>/dev/null || true
           oc wait mcp master worker --for condition=updated --timeout=60m
-          echo "  ✅ MCPs updated"
         fi
-
-        echo ""
-        echo "======================================"
-        echo "✅ Stage Registry Configuration Complete"
-        echo "======================================"
 
     - name: install-operator
       image: quay.io/openshift/origin-cli:4.21
@@ -326,23 +246,11 @@ spec:
         set -euo pipefail
         trap 'echo "FAILED" > $(results.deploymentStatus.path)' ERR
 
-        # CRITICAL: This step runs AFTER configure-registry-mirror has:
-        # 1. Created ImageDigestMirrorSet (IDMS) for stage registry mirrors
-        # 2. Waited for MachineConfigPools to finish updating (~15-20 mins)
-        #
-        # This ensures OLM can successfully unpack FBC bundles that reference
-        # registry.redhat.io but are actually in registry.stage.redhat.io.
-        #
-        # If CatalogSource is created before IDMS is ready, OLM will fail to
-        # pull bundle images and cache this failure, requiring catalog-operator
-        # restart to retry.
-
-        # Install jq if not available
-        if ! command -v jq &> /dev/null; then
+        command -v jq &>/dev/null || {
           curl -sL https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64 -o /tmp/jq
           chmod +x /tmp/jq
           export PATH="/tmp:$PATH"
-        fi
+        }
 
         FBC_IMAGE="$(params.fbcImage)"
         PACKAGE_NAME="$(params.packageName)"
@@ -375,24 +283,12 @@ spec:
         fi
 
         oc create namespace "$NAMESPACE" --dry-run=client -o yaml | oc apply -f -
-
-        echo "Cleaning up previous installation (if any)..."
         oc delete tackle mta -n "$NAMESPACE" --ignore-not-found --timeout=120s 2>/dev/null || true
         oc delete subscription mta-operator -n "$NAMESPACE" --ignore-not-found 2>/dev/null || true
         oc get csv -n "$NAMESPACE" -o name 2>/dev/null | xargs -r oc delete -n "$NAMESPACE" --ignore-not-found 2>/dev/null || true
         oc delete catalogsource mta-konflux-catalog -n openshift-marketplace --ignore-not-found 2>/dev/null || true
         oc delete operatorgroup mta-operator-group -n "$NAMESPACE" --ignore-not-found 2>/dev/null || true
         sleep 10
-        echo "✅ Previous installation cleaned up"
-
-        echo ""
-        echo "======================================"
-        echo "Creating CatalogSource"
-        echo "======================================"
-        echo "FBC Image: $FBC_IMAGE"
-        echo "Package: $PACKAGE_NAME"
-        echo "Channel: $CHANNEL_NAME"
-        echo ""
 
         cat <<EOF | oc apply -f -
         apiVersion: operators.coreos.com/v1alpha1
@@ -415,59 +311,10 @@ spec:
               interval: 10m
         EOF
 
-        echo "Waiting for CatalogSource to become READY..."
-
         for i in {1..60}; do
           STATE=$(oc get catalogsource mta-konflux-catalog -n openshift-marketplace -o jsonpath='{.status.connectionState.lastObservedState}' 2>/dev/null || echo "")
-
-          if [ "$STATE" = "READY" ]; then
-            echo "✅ CatalogSource READY"
-            break
-          fi
-
-          # Debug logging every 10 iterations
-          if [ $((i % 10)) -eq 0 ]; then
-            echo "[$i/60] CatalogSource state: ${STATE:-not set}"
-
-            # Check pod status
-            POD_NAME=$(oc get pods -n openshift-marketplace -l olm.catalogSource=mta-konflux-catalog -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
-            if [ -n "$POD_NAME" ]; then
-              POD_STATUS=$(oc get pod "$POD_NAME" -n openshift-marketplace -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
-              echo "  Pod: $POD_NAME, Status: $POD_STATUS"
-
-              # Check for image pull errors
-              IMAGE_PULL_STATUS=$(oc get pod "$POD_NAME" -n openshift-marketplace -o jsonpath='{.status.containerStatuses[0].state}' 2>/dev/null || echo "")
-              if echo "$IMAGE_PULL_STATUS" | grep -q "waiting"; then
-                REASON=$(oc get pod "$POD_NAME" -n openshift-marketplace -o jsonpath='{.status.containerStatuses[0].state.waiting.reason}' 2>/dev/null || echo "")
-                MESSAGE=$(oc get pod "$POD_NAME" -n openshift-marketplace -o jsonpath='{.status.containerStatuses[0].state.waiting.message}' 2>/dev/null || echo "")
-                echo "  ⚠️  Container waiting: $REASON"
-                [ -n "$MESSAGE" ] && echo "  Message: $MESSAGE"
-              fi
-            else
-              echo "  ⚠️  CatalogSource pod not found yet"
-            fi
-          fi
-
-          if [ $i -eq 60 ]; then
-            echo ""
-            echo "❌ CatalogSource failed to reach READY state"
-            echo ""
-            echo "=== CatalogSource Debug Info ==="
-            oc get catalogsource mta-konflux-catalog -n openshift-marketplace -o yaml || true
-            echo ""
-            echo "=== CatalogSource Pod Info ==="
-            POD_NAME=$(oc get pods -n openshift-marketplace -l olm.catalogSource=mta-konflux-catalog -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
-            if [ -n "$POD_NAME" ]; then
-              oc get pod "$POD_NAME" -n openshift-marketplace -o yaml || true
-              echo ""
-              echo "=== Pod Logs (last 50 lines) ==="
-              oc logs "$POD_NAME" -n openshift-marketplace --tail=50 || true
-            else
-              echo "No CatalogSource pod found"
-            fi
-            echo "FAILED" > $(results.deploymentStatus.path)
-            exit 1
-          fi
+          [ "$STATE" = "READY" ] && break
+          [ $i -eq 60 ] && exit 1
           sleep 5
         done
 
@@ -478,16 +325,8 @@ spec:
           name: mta-operator-group
           namespace: $NAMESPACE
         spec:
-          targetNamespaces:
-            - $NAMESPACE
-        EOF
-
-        echo ""
-        echo "======================================"
-        echo "Creating Subscription"
-        echo "======================================"
-
-        cat <<EOF | oc apply -f -
+          targetNamespaces: [$NAMESPACE]
+        ---
         apiVersion: operators.coreos.com/v1alpha1
         kind: Subscription
         metadata:
@@ -501,135 +340,19 @@ spec:
           sourceNamespace: openshift-marketplace
         EOF
 
-        echo "Subscription created. Waiting for InstallPlan and operator installation..."
-        echo "(Timeout: 15 minutes)"
         sleep 10
 
-        CSV=""
-        PHASE=""
-        INSTALL_PLAN_SEEN=false
-
         for i in {1..180}; do
-          # Check for InstallPlan
-          if [ "$INSTALL_PLAN_SEEN" = false ]; then
-            INSTALL_PLAN=$(oc get installplan -n "$NAMESPACE" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
-            if [ -n "$INSTALL_PLAN" ]; then
-              INSTALL_PLAN_SEEN=true
-              IP_APPROVED=$(oc get installplan "$INSTALL_PLAN" -n "$NAMESPACE" -o jsonpath='{.spec.approved}' 2>/dev/null || echo "")
-              IP_PHASE=$(oc get installplan "$INSTALL_PLAN" -n "$NAMESPACE" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
-              echo "✅ InstallPlan found: $INSTALL_PLAN (approved=$IP_APPROVED, phase=$IP_PHASE)"
-            fi
-          fi
-
           CSV=$(oc get subscription mta-operator -n "$NAMESPACE" -o jsonpath='{.status.installedCSV}' 2>/dev/null || echo "")
           if [ -n "$CSV" ]; then
             PHASE=$(oc get csv "$CSV" -n "$NAMESPACE" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
-            if [ "$PHASE" = "Succeeded" ]; then
-              echo "✅ Operator installed: $CSV"
-              echo "$CSV" > $(results.csvName.path)
-              break
-            fi
+            [ "$PHASE" = "Succeeded" ] && echo "$CSV" > $(results.csvName.path) && break
           fi
-
-          # Enhanced debug logging every 30 seconds (every 6 iterations)
-          if [ $((i % 6)) -eq 0 ]; then
-            MINS=$((i / 12))
-            echo "[$MINS min / 15 min] Waiting for operator..."
-
-            # Show subscription status
-            SUB_STATE=$(oc get subscription mta-operator -n "$NAMESPACE" -o jsonpath='{.status.state}' 2>/dev/null || echo "")
-            if [ -n "$SUB_STATE" ]; then
-              echo "  Subscription state: $SUB_STATE"
-            fi
-
-            # Show InstallPlan status if exists
-            if [ -n "$INSTALL_PLAN" ]; then
-              IP_PHASE=$(oc get installplan "$INSTALL_PLAN" -n "$NAMESPACE" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
-              echo "  InstallPlan phase: $IP_PHASE"
-
-              # Check for failed conditions
-              IP_CONDITIONS=$(oc get installplan "$INSTALL_PLAN" -n "$NAMESPACE" -o jsonpath='{.status.conditions[?(@.type=="Installed")].message}' 2>/dev/null || echo "")
-              if [ -n "$IP_CONDITIONS" ] && [ "$IP_CONDITIONS" != "null" ]; then
-                echo "  InstallPlan message: $IP_CONDITIONS"
-              fi
-            else
-              echo "  ⚠️  No InstallPlan found yet"
-
-              # Check catalog connectivity
-              CATALOG_STATE=$(oc get catalogsource mta-konflux-catalog -n openshift-marketplace -o jsonpath='{.status.connectionState.lastObservedState}' 2>/dev/null || echo "")
-              if [ "$CATALOG_STATE" != "READY" ]; then
-                echo "  ⚠️  CatalogSource not READY: $CATALOG_STATE"
-              fi
-            fi
-
-            # Show CSV status if exists
-            if [ -n "$CSV" ]; then
-              echo "  CSV: $CSV, Phase: ${PHASE:-not set}"
-            fi
-          fi
+          [ $((i % 12)) -eq 0 ] && echo "[$((i/12)) min / 15 min] Waiting for operator..."
           sleep 5
         done
 
-        if [ -z "$CSV" ] || [ "$PHASE" != "Succeeded" ]; then
-          echo ""
-          echo "======================================"
-          echo "❌ OPERATOR INSTALLATION FAILED"
-          echo "======================================"
-          echo "CSV: ${CSV:-not found}"
-          echo "Phase: ${PHASE:-not set}"
-          echo "InstallPlan seen: $INSTALL_PLAN_SEEN"
-          echo ""
-
-          echo "=== DIAGNOSTICS ==="
-          echo ""
-
-          echo "1. Subscription Status:"
-          oc get subscription mta-operator -n "$NAMESPACE" -o yaml 2>/dev/null || echo "  Subscription not found"
-          echo ""
-
-          echo "2. InstallPlans:"
-          oc get installplan -n "$NAMESPACE" 2>/dev/null || echo "  No InstallPlans found"
-          if oc get installplan -n "$NAMESPACE" &>/dev/null; then
-            echo ""
-            echo "  InstallPlan Details:"
-            oc get installplan -n "$NAMESPACE" -o yaml 2>/dev/null | grep -A 30 "status:" || true
-          fi
-          echo ""
-
-          echo "3. CatalogSource Status:"
-          oc get catalogsource mta-konflux-catalog -n openshift-marketplace -o jsonpath='{.status}' 2>/dev/null | jq '.' || echo "  No status"
-          echo ""
-
-          echo "4. CatalogSource Pod:"
-          POD_NAME=$(oc get pods -n openshift-marketplace -l olm.catalogSource=mta-konflux-catalog -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
-          if [ -n "$POD_NAME" ]; then
-            oc get pod "$POD_NAME" -n openshift-marketplace || true
-            echo ""
-            echo "  Pod Logs (last 100 lines):"
-            oc logs "$POD_NAME" -n openshift-marketplace --tail=100 || true
-          else
-            echo "  No CatalogSource pod found"
-          fi
-          echo ""
-
-          echo "5. Operator Namespace Events:"
-          oc get events -n "$NAMESPACE" --sort-by='.lastTimestamp' 2>/dev/null | tail -20 || echo "  No events"
-          echo ""
-
-          echo "6. Marketplace Namespace Events:"
-          oc get events -n openshift-marketplace --sort-by='.lastTimestamp' 2>/dev/null | tail -20 || echo "  No events"
-          echo ""
-
-          echo "7. CSV Status (if exists):"
-          if [ -n "$CSV" ]; then
-            oc get csv "$CSV" -n "$NAMESPACE" -o yaml 2>/dev/null | grep -A 50 "status:" || true
-          else
-            echo "  No CSV found"
-          fi
-          echo ""
-          echo "FAILED" > $(results.deploymentStatus.path)
-          exit 1
-        fi
+        [ -z "$CSV" ] || [ "$PHASE" != "Succeeded" ] && exit 1
 
         oc wait --for=condition=available --timeout=300s deployment/mta-operator -n "$NAMESPACE"
 

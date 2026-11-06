@@ -21,6 +21,14 @@ spec:
       type: string
       default: "aws-sno-ga"
       description: OCPCTL cluster profile
+    - name: platform
+      type: string
+      default: "aws"
+      description: Cloud platform (aws, azure, gcp)
+    - name: clusterType
+      type: string
+      default: "openshift"
+      description: OCPCTL cluster type (rosa, aro, openshift)
     - name: version
       type: string
       default: "4.21"
@@ -92,19 +100,41 @@ spec:
 
         OCPCTL_URL="$(params.ocpctlUrl)"
         RAW_NAME="$(params.clusterName)"
-        CLUSTER_NAME="mta-$(echo "$RAW_NAME" | tr -d '-' | head -c 13)"
+        # Extract unique suffix (last part after last dash)
+        # Construct: kflx-mta-{clusterType}-{suffix}
+        # Example: mta-tier0-aro-9c458 -> kflx-mta-aro-9c458
+        SUFFIX=$(echo "$RAW_NAME" | rev | cut -d'-' -f1 | rev)
+        CLUSTER_NAME=$(echo "kflx-mta-$(params.clusterType)-${SUFFIX}" | head -c 21)
 
+        echo "======================================"
         echo "Creating OCPCTL cluster: $CLUSTER_NAME"
-        echo "  profile=$(params.profile) version=$(params.version) region=$(params.region)"
+        echo "======================================"
+        echo "API Parameters:"
+        echo "  URL: $OCPCTL_URL/clusters"
+        echo "  platform: $(params.platform)"
+        echo "  cluster_type: $(params.clusterType)"
+        echo "  profile: $(params.profile)"
+        echo "  version: $(params.version)"
+        echo "  region: $(params.region)"
 
-        RESPONSE=$(curl -s -w "\n%{http_code}" \
-          -X POST "$OCPCTL_URL/clusters" \
-          -H "Authorization: Bearer $OCPCTL_API_KEY" \
-          -H "Content-Type: application/json" \
-          -d "{
+        # base_domain only for openshift cluster type (not rosa/aro)
+        if [ "$(params.clusterType)" = "openshift" ]; then
+          echo "  base_domain: $(params.baseDomain)"
+        else
+          echo "  base_domain: (not applicable for $(params.clusterType))"
+        fi
+
+        echo "  owner: $(params.owner)"
+        echo "  team: $(params.team)"
+        echo "  cost_center: $(params.costCenter)"
+        echo "======================================"
+
+        # Build JSON payload conditionally
+        if [ "$(params.clusterType)" = "openshift" ]; then
+          PAYLOAD="{
             \"name\": \"$CLUSTER_NAME\",
-            \"platform\": \"aws\",
-            \"cluster_type\": \"openshift\",
+            \"platform\": \"$(params.platform)\",
+            \"cluster_type\": \"$(params.clusterType)\",
             \"version\": \"$(params.version)\",
             \"profile\": \"$(params.profile)\",
             \"region\": \"$(params.region)\",
@@ -112,7 +142,26 @@ spec:
             \"owner\": \"$(params.owner)\",
             \"team\": \"$(params.team)\",
             \"cost_center\": \"$(params.costCenter)\"
-          }")
+          }"
+        else
+          PAYLOAD="{
+            \"name\": \"$CLUSTER_NAME\",
+            \"platform\": \"$(params.platform)\",
+            \"cluster_type\": \"$(params.clusterType)\",
+            \"version\": \"$(params.version)\",
+            \"profile\": \"$(params.profile)\",
+            \"region\": \"$(params.region)\",
+            \"owner\": \"$(params.owner)\",
+            \"team\": \"$(params.team)\",
+            \"cost_center\": \"$(params.costCenter)\"
+          }"
+        fi
+
+        RESPONSE=$(curl -s --insecure -w "\n%{http_code}" \
+          -X POST "$OCPCTL_URL/clusters" \
+          -H "Authorization: Bearer $OCPCTL_API_KEY" \
+          -H "Content-Type: application/json" \
+          -d "$PAYLOAD")
 
         HTTP_CODE=$(echo "$RESPONSE" | tail -1)
         BODY=$(echo "$RESPONSE" | sed '$d')
@@ -161,7 +210,7 @@ spec:
         echo "Waiting for cluster $CLUSTER_ID to reach READY (timeout: ${TIMEOUT}s)..."
 
         while true; do
-          RESPONSE=$(curl -s --max-time 30 --retry 3 --retry-delay 5 \
+          RESPONSE=$(curl -s --insecure --max-time 30 --retry 3 --retry-delay 5 \
             -H "Authorization: Bearer $OCPCTL_API_KEY" \
             "$OCPCTL_URL/clusters/$CLUSTER_ID" || echo "")
 
@@ -185,6 +234,45 @@ spec:
 
           if [ "$STATUS" = "FAILED" ] || [ "$STATUS" = "DESTROY_FAILED" ]; then
             echo "❌ Cluster reached failure status: $STATUS"
+            echo ""
+            echo "Cluster details:"
+            echo "$RESPONSE" | python3 -c "
+        import sys, json
+        try:
+            data = json.load(sys.stdin)
+            cluster = data.get('cluster', data)
+            print(f\"Status message: {cluster.get('status_message', 'N/A')}\")
+            print(f\"Error: {cluster.get('error', 'N/A')}\")
+            print(f\"Details: {cluster.get('details', 'N/A')}\")
+        except:
+            print('Could not parse cluster details')
+        " || true
+
+            echo ""
+            echo "Fetching cluster logs..."
+            LOGS=$(curl -s --insecure --max-time 30 \
+              -H "Authorization: Bearer $OCPCTL_API_KEY" \
+              "$OCPCTL_URL/clusters/$CLUSTER_ID/logs" || echo "")
+
+            if [ -n "$LOGS" ]; then
+              echo "$LOGS" | python3 -c "
+        import sys, json
+        try:
+            data = json.load(sys.stdin)
+            logs = data.get('logs', [])
+            if logs:
+                print('Last 10 log entries:')
+                for log in logs[-10:]:
+                    print(f\"{log.get('timestamp', 'N/A')} [{log.get('level', 'INFO')}] {log.get('message', '')}\")
+            else:
+                print('No logs available')
+        except Exception as e:
+            print(f'Could not parse logs: {e}')
+        " || echo "Failed to parse logs"
+            else
+              echo "No logs returned from API"
+            fi
+
             echo -n "FAILED" > $(results.provisionStatus.path)
             # Do NOT exit 1 - we need clusterId available for cleanup
             exit 0

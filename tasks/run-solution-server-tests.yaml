@@ -1,0 +1,366 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: run-solution-server-tests
+  labels:
+    app.kubernetes.io/version: "0.1"
+  annotations:
+    tekton.dev/pipelines.minVersion: "0.12.1"
+    tekton.dev/categories: Test
+    tekton.dev/tags: mta,solution-server,kai,llm-proxy,e2e
+    tekton.dev/displayName: "Run Solution Server Tests"
+spec:
+  description: >-
+    Enable the solution server and the LLM proxy on the deployed MTA instance
+    and test both against a scripted LLM emulator. Three legs, reported
+    separately so a red run says which part broke:
+
+    deploy - the kai-api, llm-proxy and kai-db deployments roll out and the
+    Tackle CR reconciles. Tests the built mta-solution-server image actually
+    starting, which is where a crash on startup hid.
+
+    llm-proxy - the operator repo's llm-proxy e2e: chat completions through
+    the hub's /hub/services/llm-proxy with hub-issued credentials, responses
+    from llemulator, and the hub rejecting an invalid bearer token.
+
+    concurrency - kai's test_multiple_users stress test against the deployed
+    server: N concurrent MCP clients creating incidents, holding connections
+    open, then hint generation checked afterwards.
+
+    The LLM proxy scripts come from konveyor/operator and the solution server
+    tests from konveyor/kai, both at pinned refs, the same way the UI and
+    koncur tests come from their own repos.
+
+    No model credentials and no egress to a provider: every model call goes
+    to llemulator, so the result is the same on every snapshot.
+
+  params:
+    - name: clusterId
+      type: string
+      description: UUID of the leased cluster
+    - name: namespace
+      type: string
+      default: "openshift-mta"
+      description: Namespace MTA is installed in
+    - name: tackleName
+      type: string
+      default: "mta"
+      description: Name of the Tackle CR
+    - name: operatorRepo
+      type: string
+      default: "konveyor/operator"
+      description: Repo holding the llm-proxy scripts
+    - name: operatorRef
+      type: string
+      default: "8366b30215573d89359baf22c724bd0b74c5a86f"
+      description: |
+        Commit to take the scripts from, konveyor/operator#626 by default.
+        Pinned so an upstream change cannot turn this red for reasons
+        unrelated to the snapshot under test. Move it on purpose, when the
+        scripts change in a way this pipeline needs.
+    - name: kaiRepo
+      type: string
+      default: "konveyor/kai"
+      description: Repo holding the solution server tests
+    - name: kaiRef
+      type: string
+      default: "1a47a4d529313a7fdb5ed0e07c2c88d06bd51a1a"
+      description: |
+        Commit to take the kai_mcp_solution_server tests from. Pinned to
+        konveyor/kai#946's merge, which added the mount-path fix the
+        concurrency leg needs (the deployed server serves at /api, and the
+        stress test used to drop the path). Move it on purpose when the
+        tests change upstream, the same rule as operatorRef.
+    - name: numConcurrentClients
+      type: string
+      default: "30"
+      description: Concurrent clients for the solution server stress test
+    - name: ocpctlUrl
+      type: string
+      default: "https://ocpctl.apps.cnv2.engineering.redhat.com/api/v1"
+      description: OCPCTL API base URL
+    - name: ocpctlSecretName
+      type: string
+      default: "ocpctl-ci-key"
+      description: Name of the Kubernetes Secret containing the OCPCTL API key
+
+  results:
+    - name: deployStatus
+      description: Solution server deployment status (SUCCESS, FAILED)
+    - name: llmProxyStatus
+      description: LLM proxy test status (PASSED, FAILED, SKIPPED)
+    - name: concurrencyStatus
+      description: Solution server concurrency test status (PASSED, FAILED, SKIPPED)
+    - name: testStatus
+      description: Overall test status (PASSED or FAILED)
+
+  volumes:
+    - name: credentials
+      emptyDir: {}
+
+  steps:
+    - name: run-tests
+      image: python:3.12-slim
+      volumeMounts:
+        - name: credentials
+          mountPath: /credentials
+      env:
+        - name: OCPCTL_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: $(params.ocpctlSecretName)
+              key: api-key
+      script: |
+        #!/bin/bash
+        set -euo pipefail
+
+        # Written up front so a declared result that is never written leaves
+        # the TaskRun reporting missing results instead of the failure.
+        echo -n "FAILED" > $(results.deployStatus.path)
+        echo -n "SKIPPED" > $(results.llmProxyStatus.path)
+        echo -n "SKIPPED" > $(results.concurrencyStatus.path)
+        echo -n "FAILED" > $(results.testStatus.path)
+
+        OCPCTL_URL="$(params.ocpctlUrl)"
+        CLUSTER_ID="$(params.clusterId)"
+        NAMESPACE="$(params.namespace)"
+        TACKLE="$(params.tackleName)"
+
+        echo "Downloading kubeconfig for cluster: $CLUSTER_ID"
+        # The same two steps as deploy-mta-operator: OCPCTL hands out a
+        # pre-signed URL, and the kubeconfig comes from that.
+        RESPONSE=$(curl -s --insecure -H "Authorization: Bearer $OCPCTL_API_KEY" \
+          "$OCPCTL_URL/clusters/$CLUSTER_ID/kubeconfig/download-url")
+        DOWNLOAD_URL=$(echo "$RESPONSE" | grep -o '"download_url":"[^"]*"' \
+          | cut -d'"' -f4 | sed 's/\\u0026/\&/g' || true)
+        if [ -z "$DOWNLOAD_URL" ]; then
+          echo "❌ Failed to get kubeconfig download URL"
+          echo "Response: $RESPONSE"
+          exit 1
+        fi
+        HTTP=$(curl -s --insecure -o /credentials/kubeconfig -w '%{http_code}' "$DOWNLOAD_URL")
+        if [ "$HTTP" != "200" ] || [ ! -s /credentials/kubeconfig ]; then
+          echo "❌ Failed to download kubeconfig (HTTP $HTTP)"
+          exit 1
+        fi
+        export KUBECONFIG=/credentials/kubeconfig
+
+        # kubectl for the fetched upstream scripts, oc for the rest, jq for
+        # test-llm-proxy.sh. Static binaries; this image is Debian-based.
+        echo "Installing oc, kubectl and jq..."
+        curl -sL https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable/openshift-client-linux.tar.gz \
+          | tar -xzf - -C /usr/local/bin oc kubectl
+        chmod +x /usr/local/bin/oc /usr/local/bin/kubectl
+        curl -sL https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64 \
+          -o /usr/local/bin/jq
+        chmod +x /usr/local/bin/jq
+
+        FAILURES=0
+
+        # --- Deploy: solution server + llm proxy + llemulator --------------
+        # The operator reads kai-api-keys at reconcile time and injects the
+        # keys into the kai-api deployment, so the secret comes first. The
+        # key is a dummy: every model call goes to llemulator.
+        if ! kubectl create secret generic kai-api-keys \
+            --from-literal=OPENAI_API_KEY=dummy-key-for-llemulator \
+            -n "$NAMESPACE" \
+            --dry-run=client -o yaml | kubectl apply -f -; then
+          echo "❌ Could not create the kai-api-keys secret"
+          FAILURES=1
+        fi
+
+        # llemulator: the same script the operator's own CI uses, fetched at
+        # a pinned ref the way setup-agentic does it.
+        RAW_OPERATOR="https://raw.githubusercontent.com/$(params.operatorRepo)/$(params.operatorRef)"
+        if [ "$FAILURES" -eq 0 ]; then
+          echo "Deploying llemulator..."
+          curl -sfL -o /tmp/setup-llemulator.sh \
+            "$RAW_OPERATOR/test/e2e/llm-proxy/setup-llemulator.sh"
+          chmod +x /tmp/setup-llemulator.sh
+          if ! NAMESPACE="$NAMESPACE" /tmp/setup-llemulator.sh; then
+            echo "❌ llemulator did not deploy"
+            FAILURES=1
+          fi
+        fi
+
+        if [ "$FAILURES" -eq 0 ]; then
+          # Flipping these fields rolls new deployments (kai-db, kai-api,
+          # llm-proxy) and restarts the hub (KAI_URL env), which is why this
+          # task runs after the other suites are done.
+          echo "Enabling solution server and llm proxy on the Tackle CR..."
+          if ! kubectl patch tackles.tackle.konveyor.io "$TACKLE" -n "$NAMESPACE" \
+              --type=merge -p '{
+                "spec": {
+                  "kai_solution_server_enabled": true,
+                  "kai_llm_proxy_enabled": true,
+                  "kai_llm_provider": "openai",
+                  "kai_llm_model": "gpt-4o",
+                  "kai_llm_baseurl": "http://llemulator.'"$NAMESPACE"'.svc.cluster.local/v1"
+                }
+              }'; then
+            echo "❌ Could not patch the Tackle CR"
+            FAILURES=1
+          fi
+        fi
+
+        if [ "$FAILURES" -eq 0 ]; then
+          echo "Waiting for the Tackle CR to reconcile..."
+          if ! kubectl wait --for=condition=Successful \
+              tackles.tackle.konveyor.io "$TACKLE" -n "$NAMESPACE" --timeout=600s; then
+            echo "❌ Tackle CR did not reconcile"
+            kubectl get tackles.tackle.konveyor.io "$TACKLE" -n "$NAMESPACE" \
+              -o jsonpath='{range .status.conditions[*]}{.type}={.status} {.reason}: {.message}{"\n"}{end}' || true
+            FAILURES=1
+          fi
+        fi
+
+        if [ "$FAILURES" -eq 0 ]; then
+          echo "Waiting for the kai components to roll out..."
+          for deployment in kai-db kai-api llm-proxy llemulator; do
+            if ! kubectl rollout status "deployment/$deployment" -n "$NAMESPACE" --timeout=600s; then
+              echo "❌ deployment/$deployment did not roll out"
+              kubectl get pods -n "$NAMESPACE" -o wide || true
+              kubectl logs "deployment/$deployment" -n "$NAMESPACE" --tail=80 || true
+              FAILURES=1
+              break
+            fi
+          done
+        fi
+
+        # The kai-api deployment ships no readiness probe, so rollout status
+        # reports success while the container crash-loops (this is exactly how
+        # the greenlet breakage shipped). Wait on the Ready condition of the
+        # current replicaset's pods - the pod-template-hash lives on the
+        # ReplicaSet, not the Deployment's own template, and a label-only wait
+        # would also match leftover terminating pods from the previous image.
+        if [ "$FAILURES" -eq 0 ]; then
+          KAI_HASH="$(kubectl get replicaset -n "$NAMESPACE" -l app=kai-api \
+            --sort-by=.metadata.creationTimestamp --no-headers \
+            -o custom-columns='HASH:.spec.template.metadata.labels.pod-template-hash' | tail -1)"
+          if ! kubectl wait --for=condition=Ready pod \
+              -l "app=kai-api,pod-template-hash=${KAI_HASH}" \
+              -n "$NAMESPACE" --timeout=300s; then
+            echo "❌ kai-api pod never became Ready (crash loop suspicion)"
+            kubectl get pods -n "$NAMESPACE" -l app=kai-api -o wide || true
+            kubectl logs deployment/kai-api -n "$NAMESPACE" --tail=30 || true
+            FAILURES=1
+          fi
+        fi
+
+        if [ "$FAILURES" -eq 0 ]; then
+          echo "✅ Solution server deployed"
+          echo -n "SUCCESS" > $(results.deployStatus.path)
+        else
+          echo "❌ Solution server deployment failed"
+          echo -n "FAILED" > $(results.deployStatus.path)
+        fi
+
+        # --- Leg 1: llm proxy ------------------------------------------------
+        # test-llm-proxy.sh from the operator repo, at the same pinned ref.
+        # konveyor names the hub and ui tackle-hub / tackle-ui; MTA deploys
+        # them as mta-hub / mta-ui. Those two names are the only edit, and
+        # the sed keeps the upstream test logic otherwise verbatim.
+        if [ "$FAILURES" -eq 0 ]; then
+          echo "Running llm proxy tests..."
+          curl -sfL -o /tmp/test-llm-proxy.sh \
+            "$RAW_OPERATOR/test/e2e/llm-proxy/test-llm-proxy.sh"
+          sed -i -e 's/tackle-hub/mta-hub/g' -e 's/tackle-ui/mta-ui/g' \
+            /tmp/test-llm-proxy.sh
+          chmod +x /tmp/test-llm-proxy.sh
+          if NAMESPACE="$NAMESPACE" /tmp/test-llm-proxy.sh; then
+            echo "✅ llm proxy tests passed"
+            echo -n "PASSED" > $(results.llmProxyStatus.path)
+          else
+            echo "❌ llm proxy tests failed"
+            echo -n "FAILED" > $(results.llmProxyStatus.path)
+            FAILURES=1
+            echo "--- llm-proxy logs"
+            kubectl logs deployment/llm-proxy -n "$NAMESPACE" --tail=100 || true
+            echo "--- llemulator logs"
+            kubectl logs deployment/llemulator -n "$NAMESPACE" --tail=100 || true
+          fi
+        fi
+
+        # --- Leg 2: solution server concurrency -------------------------------
+        # The deployed server mounts its MCP endpoint at /api (MOUNT_PATH in
+        # the operator's kai-api deployment), reached here through a
+        # port-forward of the kai-solution-server Service, the same way
+        # test-llm-proxy.sh reaches the hub through the UI Service.
+        if [ "$FAILURES" -eq 0 ]; then
+          echo "Running solution server concurrency tests..."
+          PF_PID=""
+          cleanup() {
+            if [ -n "$PF_PID" ]; then
+              kill "$PF_PID" 2>/dev/null || true
+            fi
+          }
+          trap cleanup EXIT
+
+          kubectl port-forward -n "$NAMESPACE" service/kai-solution-server 8000:8000 &
+          PF_PID=$!
+
+          # Any HTTP answer (including a 4xx from a GET at the MCP endpoint)
+          # means the tunnel is up; 000 means it is not.
+          TUNNEL=""
+          for i in $(seq 1 30); do
+            CODE=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8000/api || echo 000)
+            if [ "$CODE" != "000" ]; then
+              TUNNEL="up"
+              break
+            fi
+            sleep 2
+          done
+          if [ -z "$TUNNEL" ]; then
+            echo "❌ port-forward to kai-solution-server never came up"
+            echo -n "FAILED" > $(results.concurrencyStatus.path)
+            FAILURES=1
+          else
+            # Tests from kai at a pinned ref. Dependencies come from the
+            # repo's lockfile-derived requirements.txt - the same set the
+            # image installs - so a dependency bump that breaks the deployed
+            # image breaks this leg too.
+            mkdir -p /tmp/kai
+            if curl -sfL "https://github.com/$(params.kaiRepo)/archive/$(params.kaiRef).tar.gz" \
+                | tar -xz -C /tmp/kai --strip-components=1; then
+              KAI_DIR=/tmp/kai
+              # The pip installs sit inside the if on purpose: under
+              # set -euo pipefail a pip failure outside it would exit the
+              # task with this leg's result still SKIPPED, and Slack would
+              # show a broken leg as skipped.
+              if (cd "$KAI_DIR/kai_mcp_solution_server" && \
+                  pip install --no-cache-dir --quiet \
+                    -r requirements.txt pytest rich && \
+                  pip install --no-cache-dir --quiet --no-deps . && \
+                  MCP_SERVER_URL="http://localhost:8000/api" \
+                  NUM_CONCURRENT_CLIENTS="$(params.numConcurrentClients)" \
+                  python -m pytest \
+                    tests/test_multiple_integration.py::TestMultipleIntegration::test_multiple_users \
+                    -v --exitfirst); then
+                echo "✅ solution server concurrency tests passed"
+                echo -n "PASSED" > $(results.concurrencyStatus.path)
+              else
+                echo "❌ solution server concurrency tests failed"
+                echo -n "FAILED" > $(results.concurrencyStatus.path)
+                FAILURES=1
+                echo "--- kai-api logs"
+                kubectl logs deployment/kai-api -n "$NAMESPACE" --tail=100 || true
+              fi
+            else
+              echo "❌ Could not fetch kai at $(params.kaiRepo)@$(params.kaiRef)"
+              echo -n "FAILED" > $(results.concurrencyStatus.path)
+              FAILURES=1
+            fi
+          fi
+          cleanup
+          trap - EXIT
+        fi
+
+        if [ "$FAILURES" -gt 0 ]; then
+          echo ""
+          echo "❌ Solution server tests failed"
+          exit 1
+        fi
+
+        echo ""
+        echo "✅ Solution server tests passed"
+        echo -n "PASSED" > $(results.testStatus.path)

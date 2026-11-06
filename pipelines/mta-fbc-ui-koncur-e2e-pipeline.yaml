@@ -52,6 +52,18 @@ spec:
     - name: KONCUR_TEST_OUTPUT
       description: Koncur hub test execution result
       value: $(tasks.run-koncur-tests.results.testStatus)
+    - name: SOLUTION_SERVER_DEPLOY
+      description: Solution server deployment result
+      value: $(tasks.run-solution-server-tests.results.deployStatus)
+    - name: SOLUTION_SERVER_LLM_PROXY
+      description: LLM proxy test result
+      value: $(tasks.run-solution-server-tests.results.llmProxyStatus)
+    - name: SOLUTION_SERVER_CONCURRENCY
+      description: Solution server concurrency test result
+      value: $(tasks.run-solution-server-tests.results.concurrencyStatus)
+    - name: SOLUTION_SERVER_TEST_OUTPUT
+      description: Solution server test execution result
+      value: $(tasks.run-solution-server-tests.results.testStatus)
 
   tasks:
     - name: parse-metadata
@@ -244,6 +256,30 @@ spec:
           - name: pathInRepo
             value: tasks/run-ui-e2e-tests.yaml
 
+    - name: run-solution-server-tests
+      # Last, not alongside the others: enabling kai on the Tackle CR rolls
+      # the hub (KAI_URL env) and adds deployments underneath the other
+      # suites, and the llm-proxy leg needs auth left as the other suites
+      # expect it.
+      runAfter:
+        - run-e2e-tests
+      when:
+        - input: "run"
+          operator: in
+          values: ["run"] # Set to "skip" to skip solution server tests
+      params:
+        - name: clusterId
+          value: $(tasks.lease-cluster.results.clusterId)
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/run-solution-server-tests.yaml
+
   finally:
     - name: release-cluster
       when:
@@ -275,6 +311,12 @@ spec:
           value: "$(tasks.run-dast-scan.status)"
         - name: koncurStatus
           value: "$(tasks.run-koncur-tests.status)"
+        - name: solutionServerDeployStatus
+          value: "$(tasks.run-solution-server-tests.results.deployStatus)"
+        - name: solutionServerLlmProxyStatus
+          value: "$(tasks.run-solution-server-tests.results.llmProxyStatus)"
+        - name: solutionServerConcurrencyStatus
+          value: "$(tasks.run-solution-server-tests.results.concurrencyStatus)"
         - name: operatorNVR
           value: "$(tasks.extract-operator-nvr.results.operatorNVR)"
         - name: snapshotJson

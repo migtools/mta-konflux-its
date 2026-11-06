@@ -19,7 +19,8 @@ README.md
 2. **DAST Scan** - Security testing (disables auth)
 3. **Koncur Tests** - Hub API integration tests
 4. **UI E2E Tests** - Cypress UI tests (full tier suite)
-5. **Finally** - Cluster cleanup + Slack notification (always runs)
+5. **Solution Server Tests** - Enables kai on the Tackle CR, then: llm-proxy e2e against llemulator, and kai's concurrency stress test against the deployed server (see `tasks/run-solution-server-tests.yaml`)
+6. **Finally** - Cluster cleanup + Slack notification (always runs)
 
 **Execution model**: Tasks run sequentially. If any task fails, subsequent tasks are **skipped** (not failed). Slack notification always sends with status of all tasks.
 

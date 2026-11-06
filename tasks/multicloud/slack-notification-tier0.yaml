@@ -92,7 +92,6 @@ spec:
         PIPELINE_LINK="https://konflux-ui.apps.kflux-ocp-p01.7ayg.p1.openshiftapps.com/ns/art-mta-tenant/pipelineruns/$PIPELINE_RUN"
 
         # Construct tier0 notification message
-        # Only send tier0-specific fields (no upgrade fields)
         MESSAGE=$(cat <<EOF
         {
           "snapshot": "$SNAPSHOT",

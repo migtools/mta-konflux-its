@@ -17,6 +17,10 @@ spec:
       description: Cluster type (aro, rosa, rosa-sts, ocp-aws)
       type: string
       default: "aro"
+    - name: uiTestBranch
+      description: Branch of mta-tackle2-ui to use for tier0 tests (auto-detected from MTA version if empty)
+      type: string
+      default: ""
 
   results:
     - name: OPERATOR_NVR
@@ -63,7 +67,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: fix-tier0-pipeline-validation
+            value: main
           - name: pathInRepo
             value: tasks/filter-ocp-version.yaml
 
@@ -82,9 +86,69 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: fix-tier0-pipeline-validation
+            value: main
           - name: pathInRepo
             value: tasks/extract-operator-nvr.yaml
+
+    # Determine test branch (use parameter if provided, otherwise auto-detect from MTA version)
+    - name: map-test-branch
+      runAfter:
+        - parse-metadata
+      params:
+        - name: snapshotJson
+          value: $(params.SNAPSHOT)
+        - name: uiTestBranch
+          value: $(params.uiTestBranch)
+      taskSpec:
+        params:
+          - name: snapshotJson
+            type: string
+          - name: uiTestBranch
+            type: string
+        results:
+          - name: testBranch
+        steps:
+          - name: extract-and-map
+            image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+            script: |
+              #!/bin/bash
+              set -euo pipefail
+
+              UI_TEST_BRANCH='$(params.uiTestBranch)'
+
+              # If branch explicitly provided, use it
+              if [ -n "$UI_TEST_BRANCH" ]; then
+                echo "Using explicitly provided test branch: $UI_TEST_BRANCH"
+                echo -n "$UI_TEST_BRANCH" > $(results.testBranch.path)
+                exit 0
+              fi
+
+              # Otherwise, auto-detect from snapshot
+              echo "Auto-detecting test branch from MTA version..."
+              SNAPSHOT='$(params.snapshotJson)'
+
+              # Extract application name (e.g., fbc-mta-8-3)
+              APP_NAME=$(echo "$SNAPSHOT" | grep -o '"application":"[^"]*"' | cut -d'"' -f4)
+              echo "Application: $APP_NAME"
+
+              # Extract version (fbc-mta-8-3 → 8.3)
+              VERSION=$(echo "$APP_NAME" | grep -oE '[0-9]+-[0-9]+' | tr '-' '.')
+              echo "MTA version: $VERSION"
+
+              # Map to test branch
+              case "$VERSION" in
+                8.0) BRANCH="release-0.8" ;;
+                8.1) BRANCH="release-0.9" ;;
+                8.2) BRANCH="release-0.10" ;;
+                8.3) BRANCH="release-0.11" ;;
+                *)
+                  echo "ERROR: No test branch mapping for version $VERSION"
+                  exit 1
+                  ;;
+              esac
+
+              echo "Mapped to test branch: $BRANCH"
+              echo -n "$BRANCH" > $(results.testBranch.path)
 
     # Map cluster configuration (profile, region, timeout)
     - name: map-cluster-config
@@ -97,7 +161,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: fix-tier0-pipeline-validation
+            value: main
           - name: pathInRepo
             value: tasks/multicloud/map-cluster-profile.yaml
 
@@ -127,7 +191,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: fix-tier0-pipeline-validation
+            value: main
           - name: pathInRepo
             value: tasks/multicloud/ocpctl-provision.yaml
 
@@ -154,7 +218,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: fix-tier0-pipeline-validation
+            value: main
           - name: pathInRepo
             value: tasks/multicloud/deploy-mta-operator-multicloud.yaml
 
@@ -168,14 +232,14 @@ spec:
         - name: testTags
           value: "@tier0"
         - name: gitBranch
-          value: "main"
+          value: $(tasks.map-test-branch.results.testBranch)
       taskRef:
         resolver: git
         params:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: fix-tier0-pipeline-validation
+            value: main
           - name: pathInRepo
             value: tasks/run-ui-e2e-tests.yaml
 
@@ -197,7 +261,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: fix-tier0-pipeline-validation
+            value: main
           - name: pathInRepo
             value: tasks/ocpctl-cleanup.yaml
 
@@ -230,6 +294,6 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: fix-tier0-pipeline-validation
+            value: main
           - name: pathInRepo
             value: tasks/multicloud/slack-notification-tier0.yaml

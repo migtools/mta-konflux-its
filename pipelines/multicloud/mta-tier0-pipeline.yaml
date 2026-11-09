@@ -4,19 +4,23 @@ metadata:
   name: mta-multicloud-tier0-pipeline
 spec:
   description: |
-    MTA Tier-0 UI Tests on Multicloud Platforms
+    MTA Tier-0 UI Tests on Multicloud Platforms (Matrix Execution)
 
-    Provisions fresh cluster (ARO/ROSA/ROSA-STS/OCP-AWS), deploys MTA operator
-    from Konflux snapshot, runs tier-0 UI tests, and destroys the cluster.
+    Provisions multiple clusters in parallel (ARO/ROSA), deploys MTA operator
+    from Konflux snapshot, runs tier-0 UI tests, and destroys the clusters.
+
+    Supports testing across multiple platforms in parallel using matrix execution.
 
   params:
     - name: SNAPSHOT
       description: Application Snapshot JSON (provided by ITS)
       type: string
-    - name: clusterType
-      description: Cluster type (aro, rosa, rosa-sts, ocp-aws)
-      type: string
-      default: "aro"
+    - name: clusterTypes
+      description: Cluster types to test in parallel (array)
+      type: array
+      default:
+        - "aro"
+        - "rosa"
     - name: uiTestBranch
       description: Branch of mta-tackle2-ui to use for tier0 tests (auto-detected from MTA version if empty)
       type: string
@@ -26,15 +30,6 @@ spec:
     - name: OPERATOR_NVR
       description: Operator NVR tested
       value: $(tasks.extract-operator-nvr.results.operatorNVR)
-    - name: CLUSTER_ID
-      description: Cluster ID
-      value: $(tasks.provision-cluster.results.clusterId)
-    - name: DEPLOYMENT_STATUS
-      description: Operator deployment status
-      value: $(tasks.deploy-operator.results.deploymentStatus)
-    - name: TEST_STATUS
-      description: Tier-0 test result
-      value: $(tasks.run-tier0-tests.results.testStatus)
 
   tasks:
     # Parse snapshot metadata (extracts FBC component image)
@@ -150,11 +145,15 @@ spec:
               echo "Mapped to test branch: $BRANCH"
               echo -n "$BRANCH" > $(results.testBranch.path)
 
-    # Map cluster configuration (profile, region, timeout)
+    # Map cluster configuration (profile, region, timeout) - runs in parallel for each cluster type
     - name: map-cluster-config
+      matrix:
+        params:
+          - name: clusterType
+            value: $(params.clusterTypes[*])
       params:
         - name: clusterType
-          value: $(params.clusterType)
+          value: $(matrix.clusterType)
       taskRef:
         resolver: git
         params:
@@ -165,26 +164,30 @@ spec:
           - name: pathInRepo
             value: tasks/multicloud/map-cluster-profile.yaml
 
-    # Provision fresh cluster via OCPCTL
+    # Provision fresh cluster via OCPCTL - runs in parallel for each cluster type
     - name: provision-cluster
       runAfter:
         - extract-operator-nvr
         - map-cluster-config
+      matrix:
+        params:
+          - name: clusterType
+            value: $(params.clusterTypes[*])
       params:
         - name: clusterName
-          value: $(context.pipelineRun.name)
+          value: $(context.pipelineRun.name)-$(matrix.clusterType)
         - name: profile
-          value: $(tasks.map-cluster-config.results.profile)
+          value: $(tasks.map-cluster-config.results.profile[*])
         - name: platform
-          value: $(tasks.map-cluster-config.results.platform)
+          value: $(tasks.map-cluster-config.results.platform[*])
         - name: clusterType
-          value: $(tasks.map-cluster-config.results.clusterType)
+          value: $(tasks.map-cluster-config.results.clusterType[*])
         - name: version
-          value: $(tasks.map-cluster-config.results.version)
+          value: $(tasks.map-cluster-config.results.version[*])
         - name: region
-          value: $(tasks.map-cluster-config.results.region)
+          value: $(tasks.map-cluster-config.results.region[*])
         - name: waitTimeout
-          value: $(tasks.map-cluster-config.results.waitTimeout)
+          value: $(tasks.map-cluster-config.results.waitTimeout[*])
       taskRef:
         resolver: git
         params:
@@ -195,17 +198,21 @@ spec:
           - name: pathInRepo
             value: tasks/multicloud/ocpctl-provision.yaml
 
-    # Deploy MTA operator (uses multicloud task for ROSA/ARO)
+    # Deploy MTA operator (uses multicloud task for ROSA/ARO) - runs in parallel for each cluster
     - name: deploy-operator
       runAfter:
         - provision-cluster
+      matrix:
+        params:
+          - name: clusterType
+            value: $(params.clusterTypes[*])
       when:
-        - input: "$(tasks.provision-cluster.results.provisionStatus)"
+        - input: "$(tasks.provision-cluster.results.provisionStatus[*])"
           operator: in
           values: ["READY"]
       params:
         - name: clusterId
-          value: $(tasks.provision-cluster.results.clusterId)
+          value: $(tasks.provision-cluster.results.clusterId[*])
         - name: fbcImage
           value: $(tasks.parse-metadata.results.component-container-image)
         - name: snapshotJson
@@ -222,13 +229,17 @@ spec:
           - name: pathInRepo
             value: tasks/multicloud/deploy-mta-operator-multicloud.yaml
 
-    # Run tier-0 UI tests
+    # Run tier-0 UI tests - runs in parallel for each cluster
     - name: run-tier0-tests
       runAfter:
         - deploy-operator
+      matrix:
+        params:
+          - name: clusterType
+            value: $(params.clusterTypes[*])
       params:
         - name: uiRoute
-          value: $(tasks.deploy-operator.results.uiRoute)
+          value: $(tasks.deploy-operator.results.uiRoute[*])
         - name: testTags
           value: "@tier0"
         - name: gitBranch
@@ -244,17 +255,21 @@ spec:
             value: tasks/run-ui-e2e-tests.yaml
 
   finally:
-    # Destroy cluster after tests complete
+    # Destroy cluster after tests complete - runs in parallel for each cluster
     - name: destroy-cluster
+      matrix:
+        params:
+          - name: clusterType
+            value: $(params.clusterTypes[*])
       when:
         - input: "$(tasks.provision-cluster.status)"
           operator: in
           values: ["Succeeded"]
       params:
         - name: clusterId
-          value: $(tasks.provision-cluster.results.clusterId)
+          value: $(tasks.provision-cluster.results.clusterId[*])
         - name: clusterName
-          value: $(tasks.provision-cluster.results.clusterName)
+          value: $(tasks.provision-cluster.results.clusterName[*])
       taskRef:
         resolver: git
         params:
@@ -265,8 +280,12 @@ spec:
           - name: pathInRepo
             value: tasks/ocpctl-cleanup.yaml
 
-    # Send Slack notification
+    # Send Slack notification - runs in parallel for each cluster
     - name: send-slack-notification
+      matrix:
+        params:
+          - name: clusterType
+            value: $(params.clusterTypes[*])
       when:
         - input: "$(tasks.run-tier0-tests.status)"
           operator: in
@@ -275,15 +294,15 @@ spec:
         - name: testStatus
           value: $(tasks.run-tier0-tests.status)
         - name: clusterType
-          value: $(params.clusterType)
+          value: $(matrix.clusterType)
         - name: clusterTypeLabel
-          value: $(tasks.map-cluster-config.results.clusterTypeLabel)
+          value: $(tasks.map-cluster-config.results.clusterTypeLabel[*])
         - name: snapshotName
           value: $(tasks.parse-metadata.results.application-name)
         - name: operatorNVR
           value: $(tasks.extract-operator-nvr.results.operatorNVR)
         - name: clusterId
-          value: $(tasks.provision-cluster.results.clusterId)
+          value: $(tasks.provision-cluster.results.clusterId[*])
         - name: pipelineRunName
           value: $(context.pipelineRun.name)
         - name: triggeredBy

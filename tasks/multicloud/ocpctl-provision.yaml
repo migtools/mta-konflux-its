@@ -274,15 +274,15 @@ spec:
             fi
 
             echo -n "FAILED" > $(results.provisionStatus.path)
-            # Do NOT exit 1 - we need clusterId available for cleanup
-            exit 0
+            # Exit 1 to fail the task and pipeline (clusterId is still available to finally tasks)
+            exit 1
           fi
 
           if [ $ELAPSED -ge $TIMEOUT ]; then
             echo "❌ Timed out waiting for cluster. Last status: $STATUS"
             echo -n "TIMEOUT" > $(results.provisionStatus.path)
-            # Do NOT exit 1 - we need clusterId available for cleanup
-            exit 0
+            # Exit 1 to fail the task and pipeline (clusterId is still available to finally tasks)
+            exit 1
           fi
 
           sleep $INTERVAL

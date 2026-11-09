@@ -1,0 +1,25 @@
+---
+apiVersion: appstudio.redhat.com/v1beta2
+kind: IntegrationTestScenario
+metadata:
+  name: mta-ui-tests-on-multicloud-rosa-sts
+  namespace: art-mta-tenant
+spec:
+  application: fbc-mta-8-3
+  contexts:
+    - name: application
+      description: MTA tier0 tests on ROSA-STS
+  params:
+    - name: clusterType
+      value: "rosa-sts"
+    - name: uiTestBranch
+      value: ""  # Auto-detect from MTA version (8.3 → release-0.11)
+  resolverRef:
+    resolver: git
+    params:
+      - name: url
+        value: https://github.com/migtools/mta-konflux-its
+      - name: revision
+        value: main
+      - name: pathInRepo
+        value: pipelines/multicloud/mta-tier0-pipeline.yaml

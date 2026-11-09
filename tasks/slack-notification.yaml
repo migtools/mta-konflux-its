@@ -26,6 +26,24 @@ spec:
       type: string
       default: "None"
       description: Koncur hub test execution status (Succeeded/Failed/None)
+    - name: solutionServerDeployStatus
+      type: string
+      default: "None"
+      description: Solution server deployment status (SUCCESS/FAILED/None)
+    - name: solutionServerLlmProxyStatus
+      type: string
+      default: "None"
+      description: LLM proxy test status (PASSED/FAILED/SKIPPED/None)
+    - name: solutionServerConcurrencyStatus
+      type: string
+      default: "None"
+      description: Solution server concurrency test status (PASSED/FAILED/SKIPPED/None)
+    - name: solutionServerTaskStatus
+      type: string
+      default: "None"
+      description: Solution server task status (Succeeded/Failed/None) - always
+        exists even when the task was skipped and its results did not, so
+        the notification cannot be lost to a missing-result reference
     - name: operatorNVR
       type: string
       default: "unknown"
@@ -69,6 +87,10 @@ spec:
         UI_TEST_STATUS="$(params.testStatus)"
         DAST_STATUS="$(params.dastStatus)"
         KONCUR_STATUS="$(params.koncurStatus)"
+        SOLUTION_SERVER_DEPLOY="$(params.solutionServerDeployStatus)"
+        SOLUTION_SERVER_LLM_PROXY="$(params.solutionServerLlmProxyStatus)"
+        SOLUTION_SERVER_CONCURRENCY="$(params.solutionServerConcurrencyStatus)"
+        SOLUTION_SERVER_TASK_STATUS="$(params.solutionServerTaskStatus)"
         OPERATOR_NVR="$(params.operatorNVR)"
         SNAPSHOT_JSON='$(params.snapshotJson)'
         PIPELINE_RUN="$(params.pipelineRunName)"
@@ -122,6 +144,7 @@ spec:
         echo "UI Tests: $UI_TEST_STATUS"
         echo "DAST Scan: $DAST_STATUS"
         echo "Koncur Tests: $KONCUR_STATUS"
+        echo "Solution Server: deploy=$SOLUTION_SERVER_DEPLOY llm-proxy=$SOLUTION_SERVER_LLM_PROXY concurrency=$SOLUTION_SERVER_CONCURRENCY"
 
         # UI test status - emoji for pass/fail, text for skipped
         if [ "$UI_TEST_STATUS" = "Succeeded" ]; then
@@ -150,6 +173,35 @@ spec:
           KONCUR_STATUS_TEXT="SKIPPED"
         fi
 
+        # Solution server status - a breakdown, since a reader wants to know
+        # which part broke: the deployment (did kai-api roll out at all), the
+        # llm-proxy e2e, or the concurrency stress test. Any leg failing
+        # means the rollup is failed.
+        ss_status_text() {
+          case "$1" in
+            SUCCESS|PASSED) echo ":white_check_mark:" ;;
+            FAILED)         echo ":x:" ;;
+            *)              echo "SKIPPED" ;;
+          esac
+        }
+        SS_DEPLOY_TEXT=$(ss_status_text "$SOLUTION_SERVER_DEPLOY")
+        SS_LLM_PROXY_TEXT=$(ss_status_text "$SOLUTION_SERVER_LLM_PROXY")
+        SS_CONCURRENCY_TEXT=$(ss_status_text "$SOLUTION_SERVER_CONCURRENCY")
+        if [ "$SOLUTION_SERVER_DEPLOY" = "SUCCESS" ] && \
+           [ "$SOLUTION_SERVER_LLM_PROXY" = "PASSED" ] && \
+           [ "$SOLUTION_SERVER_CONCURRENCY" = "PASSED" ]; then
+          SS_STATUS_TEXT=":white_check_mark:"
+        elif [ "$SOLUTION_SERVER_DEPLOY" = "FAILED" ] || \
+             [ "$SOLUTION_SERVER_LLM_PROXY" = "FAILED" ] || \
+             [ "$SOLUTION_SERVER_CONCURRENCY" = "FAILED" ]; then
+          SS_STATUS_TEXT=":x:"
+        elif [ "$SOLUTION_SERVER_TASK_STATUS" = "Failed" ]; then
+          # The task ran but died before a leg could record a verdict.
+          SS_STATUS_TEXT=":x:"
+        else
+          SS_STATUS_TEXT="SKIPPED"
+        fi
+
         # Construct Konflux UI link
         PIPELINE_LINK="https://konflux-ui.apps.kflux-ocp-p01.7ayg.p1.openshiftapps.com/ns/art-mta-tenant/applications/$APPLICATION_NAME/pipelineruns/$PIPELINE_RUN"
 
@@ -164,6 +216,10 @@ spec:
           "ui_tests": "$UI_STATUS_TEXT",
           "dast_scan": "$DAST_STATUS_TEXT",
           "koncur_tests": "$KONCUR_STATUS_TEXT",
+          "solution_server": "$SS_STATUS_TEXT",
+          "solution_server_deploy": "$SS_DEPLOY_TEXT",
+          "solution_server_llm_proxy": "$SS_LLM_PROXY_TEXT",
+          "solution_server_concurrency": "$SS_CONCURRENCY_TEXT",
           "pipeline": "$PIPELINE_LINK"
         }
         EOF

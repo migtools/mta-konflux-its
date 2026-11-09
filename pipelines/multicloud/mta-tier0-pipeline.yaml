@@ -21,6 +21,10 @@ spec:
       description: Branch of mta-tackle2-ui to use for tier0 tests (auto-detected from MTA version if empty)
       type: string
       default: ""
+    - name: existingClusterId
+      description: Use existing cluster instead of provisioning (for debugging) - leave empty to provision new cluster
+      type: string
+      default: "60c6aef4-4445-439d-b8de-13928c76d672"
 
   results:
     - name: OPERATOR_NVR
@@ -28,7 +32,7 @@ spec:
       value: $(tasks.extract-operator-nvr.results.operatorNVR)
     - name: CLUSTER_ID
       description: Cluster ID
-      value: $(tasks.provision-cluster.results.clusterId)
+      value: $(tasks.determine-cluster-id.results.clusterId)
     - name: DEPLOYMENT_STATUS
       description: Operator deployment status
       value: $(tasks.deploy-operator.results.deploymentStatus)
@@ -165,11 +169,15 @@ spec:
           - name: pathInRepo
             value: tasks/multicloud/map-cluster-profile.yaml
 
-    # Provision fresh cluster via OCPCTL
+    # Provision fresh cluster via OCPCTL (skipped if existingClusterId is provided)
     - name: provision-cluster
       runAfter:
         - extract-operator-nvr
         - map-cluster-config
+      when:
+        - input: "$(params.existingClusterId)"
+          operator: in
+          values: [""]
       params:
         - name: clusterName
           value: $(context.pipelineRun.name)
@@ -195,17 +203,48 @@ spec:
           - name: pathInRepo
             value: tasks/multicloud/ocpctl-provision.yaml
 
+    # Determine which cluster ID to use (existing or newly provisioned)
+    - name: determine-cluster-id
+      runAfter:
+        - map-cluster-config
+      params:
+        - name: existingClusterId
+          value: $(params.existingClusterId)
+        - name: provisionedClusterId
+          value: $(tasks.provision-cluster.results.clusterId)
+      taskSpec:
+        params:
+          - name: existingClusterId
+            type: string
+          - name: provisionedClusterId
+            type: string
+        results:
+          - name: clusterId
+        steps:
+          - name: select-cluster
+            image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+            script: |
+              #!/bin/bash
+              set -euo pipefail
+
+              EXISTING='$(params.existingClusterId)'
+              PROVISIONED='$(params.provisionedClusterId)'
+
+              if [ -n "$EXISTING" ]; then
+                echo "Using existing cluster: $EXISTING"
+                echo -n "$EXISTING" > $(results.clusterId.path)
+              else
+                echo "Using provisioned cluster: $PROVISIONED"
+                echo -n "$PROVISIONED" > $(results.clusterId.path)
+              fi
+
     # Deploy MTA operator (uses multicloud task for ROSA/ARO)
     - name: deploy-operator
       runAfter:
-        - provision-cluster
-      when:
-        - input: "$(tasks.provision-cluster.results.provisionStatus)"
-          operator: in
-          values: ["READY"]
+        - determine-cluster-id
       params:
         - name: clusterId
-          value: $(tasks.provision-cluster.results.clusterId)
+          value: $(tasks.determine-cluster-id.results.clusterId)
         - name: fbcImage
           value: $(tasks.parse-metadata.results.component-container-image)
         - name: snapshotJson
@@ -244,12 +283,15 @@ spec:
             value: tasks/run-ui-e2e-tests.yaml
 
   finally:
-    # Destroy cluster after tests complete
+    # Destroy cluster after tests complete (skip if using existing cluster)
     - name: destroy-cluster
       when:
         - input: "$(tasks.provision-cluster.status)"
           operator: in
           values: ["Succeeded"]
+        - input: "$(params.existingClusterId)"
+          operator: in
+          values: [""]
       params:
         - name: clusterId
           value: $(tasks.provision-cluster.results.clusterId)
@@ -283,7 +325,7 @@ spec:
         - name: operatorNVR
           value: $(tasks.extract-operator-nvr.results.operatorNVR)
         - name: clusterId
-          value: $(tasks.provision-cluster.results.clusterId)
+          value: $(tasks.determine-cluster-id.results.clusterId)
         - name: pipelineRunName
           value: $(context.pipelineRun.name)
         - name: triggeredBy

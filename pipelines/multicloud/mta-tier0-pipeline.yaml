@@ -71,7 +71,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: tier0-matrix-execution
           - name: pathInRepo
             value: tasks/filter-ocp-version.yaml
 
@@ -90,7 +90,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: tier0-matrix-execution
           - name: pathInRepo
             value: tasks/extract-operator-nvr.yaml
 
@@ -165,7 +165,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: tier0-matrix-execution
           - name: pathInRepo
             value: tasks/multicloud/map-cluster-profile.yaml
 
@@ -199,7 +199,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: tier0-matrix-execution
           - name: pathInRepo
             value: tasks/multicloud/ocpctl-provision.yaml
 
@@ -257,7 +257,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: tier0-matrix-execution
           - name: pathInRepo
             value: tasks/multicloud/deploy-mta-operator-multicloud.yaml
 
@@ -278,7 +278,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: tier0-matrix-execution
           - name: pathInRepo
             value: tasks/run-ui-e2e-tests.yaml
 
@@ -303,7 +303,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: tier0-matrix-execution
           - name: pathInRepo
             value: tasks/ocpctl-cleanup.yaml
 
@@ -336,6 +336,6 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: tier0-matrix-execution
           - name: pathInRepo
             value: tasks/multicloud/slack-notification-tier0.yaml

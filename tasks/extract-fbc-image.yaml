@@ -44,35 +44,9 @@ spec:
         echo "Application: $APP_NAME"
         echo -n "$APP_NAME" > $(results.applicationName.path)
 
-        # Extract FBC image - find first component with 'fbc' or 'mta-operator' in name
-        FBC_IMAGE=$(echo "$SNAPSHOT" | python3 -c "
-import sys, json
-try:
-    data = json.load(sys.stdin)
-    components = data.get('components', [])
-
-    # Find FBC component
-    for comp in components:
-        name = comp.get('name', '')
-        if 'fbc' in name.lower() or 'mta-operator' in name.lower():
-            image = comp.get('containerImage', '')
-            if image:
-                print(image)
-                sys.exit(0)
-
-    # Fallback: take first component if no FBC found
-    if components:
-        image = components[0].get('containerImage', '')
-        if image:
-            print(image)
-            sys.exit(0)
-
-    print('', end='')
-    sys.exit(1)
-except Exception as e:
-    print(f'Error: {e}', file=sys.stderr)
-    sys.exit(1)
-")
+        # Extract FBC image - find first component's containerImage
+        # The snapshot typically has one component for FBC builds
+        FBC_IMAGE=$(echo "$SNAPSHOT" | grep -o '"containerImage":"[^"]*"' | head -1 | cut -d'"' -f4)
 
         if [ -z "$FBC_IMAGE" ]; then
           echo "❌ Failed to extract FBC image from snapshot"

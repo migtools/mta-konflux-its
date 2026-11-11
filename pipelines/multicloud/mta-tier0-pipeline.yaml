@@ -24,7 +24,7 @@ spec:
     - name: existingClusterId
       description: Use existing cluster instead of provisioning (for debugging) - leave empty to provision new cluster
       type: string
-      default: "515cd134-338c-4298-8daf-85ccf4e52eaf"
+      default: ""
 
   results:
     - name: OPERATOR_NVR
@@ -169,39 +169,35 @@ spec:
           - name: pathInRepo
             value: tasks/multicloud/map-cluster-profile.yaml
 
-    # Use existing cluster (for debugging)
+    # Provision fresh cluster via OCPCTL
     - name: provision-cluster
       runAfter:
         - extract-operator-nvr
         - map-cluster-config
       params:
-        - name: existingClusterId
-          value: $(params.existingClusterId)
         - name: clusterName
           value: $(context.pipelineRun.name)
-      taskSpec:
+        - name: profile
+          value: $(tasks.map-cluster-config.results.profile)
+        - name: platform
+          value: $(tasks.map-cluster-config.results.platform)
+        - name: clusterType
+          value: $(tasks.map-cluster-config.results.clusterType)
+        - name: version
+          value: $(tasks.map-cluster-config.results.version)
+        - name: region
+          value: $(tasks.map-cluster-config.results.region)
+        - name: waitTimeout
+          value: $(tasks.map-cluster-config.results.waitTimeout)
+      taskRef:
+        resolver: git
         params:
-          - name: existingClusterId
-            type: string
-          - name: clusterName
-            type: string
-        results:
-          - name: clusterId
-          - name: clusterName
-          - name: provisionStatus
-        steps:
-          - name: use-existing-cluster
-            image: registry.access.redhat.com/ubi9/ubi-minimal:latest
-            script: |
-              #!/bin/bash
-              set -euo pipefail
-
-              EXISTING='$(params.existingClusterId)'
-
-              echo "Using existing cluster: $EXISTING"
-              echo -n "$EXISTING" > $(results.clusterId.path)
-              echo -n "existing-$(params.clusterName)" > $(results.clusterName.path)
-              echo -n "READY" > $(results.provisionStatus.path)
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: tier0-matrix-execution
+          - name: pathInRepo
+            value: tasks/multicloud/ocpctl-provision.yaml
 
     # Deploy MTA operator (uses multicloud task for ROSA/ARO)
     - name: deploy-operator

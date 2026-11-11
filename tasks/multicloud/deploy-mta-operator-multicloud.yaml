@@ -234,6 +234,14 @@ spec:
             source: registry.redhat.io/mta/generic-external-provider-rhel9
           - mirrors: [registry.stage.redhat.io/mta/nodejs-external-provider-rhel9]
             source: registry.redhat.io/mta/nodejs-external-provider-rhel9
+          - mirrors: [registry.stage.redhat.io/mta/csharp-external-provider-rhel9]
+            source: registry.redhat.io/mta/csharp-external-provider-rhel9
+          - mirrors: [registry.stage.redhat.io/mta/go-external-provider-rhel9]
+            source: registry.redhat.io/mta/go-external-provider-rhel9
+          - mirrors: [registry.stage.redhat.io/mta/python-external-provider-rhel9]
+            source: registry.redhat.io/mta/python-external-provider-rhel9
+          - mirrors: [registry.stage.redhat.io/mta/language-discovery-rhel9]
+            source: registry.redhat.io/mta/language-discovery-rhel9
           - mirrors: [registry.stage.redhat.io/rhel8/postgresql-12]
             source: registry.redhat.io/rhel8/postgresql-12
         EOF

@@ -24,7 +24,7 @@ spec:
     - name: existingClusterId
       description: Use existing cluster instead of provisioning (for debugging) - leave empty to provision new cluster
       type: string
-      default: ""
+      default: "09e4985f-e826-469c-9d65-7bcc2750679e"
 
   results:
     - name: OPERATOR_NVR

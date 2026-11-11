@@ -262,7 +262,33 @@ spec:
       runAfter:
         - deploy-operator-existing
         - deploy-operator-provisioned
+      params:
+        - name: uiRouteExisting
+          value: $(tasks.deploy-operator-existing.results.uiRoute)
+        - name: uiRouteProvisioned
+          value: $(tasks.deploy-operator-provisioned.results.uiRoute)
+        - name: statusExisting
+          value: $(tasks.deploy-operator-existing.results.deploymentStatus)
+        - name: statusProvisioned
+          value: $(tasks.deploy-operator-provisioned.results.deploymentStatus)
+        - name: clusterExisting
+          value: $(params.existingClusterId)
+        - name: clusterProvisioned
+          value: $(tasks.provision-cluster.results.clusterId)
       taskSpec:
+        params:
+          - name: uiRouteExisting
+            type: string
+          - name: uiRouteProvisioned
+            type: string
+          - name: statusExisting
+            type: string
+          - name: statusProvisioned
+            type: string
+          - name: clusterExisting
+            type: string
+          - name: clusterProvisioned
+            type: string
         results:
           - name: uiRoute
           - name: deploymentStatus
@@ -290,19 +316,6 @@ spec:
                 echo -n "$STATUS_PROVISIONED" > $(results.deploymentStatus.path)
                 echo -n "$CLUSTER_PROVISIONED" > $(results.clusterId.path)
               fi
-        params:
-          - name: uiRouteExisting
-            value: $(tasks.deploy-operator-existing.results.uiRoute)
-          - name: uiRouteProvisioned
-            value: $(tasks.deploy-operator-provisioned.results.uiRoute)
-          - name: statusExisting
-            value: $(tasks.deploy-operator-existing.results.deploymentStatus)
-          - name: statusProvisioned
-            value: $(tasks.deploy-operator-provisioned.results.deploymentStatus)
-          - name: clusterExisting
-            value: $(params.existingClusterId)
-          - name: clusterProvisioned
-            value: $(tasks.provision-cluster.results.clusterId)
 
     # Run tier-0 UI tests
     - name: run-tier0-tests

@@ -224,6 +224,14 @@ spec:
             source: registry.redhat.io/mta/mta-rhel9-operator
           - mirrors: [registry.stage.redhat.io/mta/mta-ui-rhel9]
             source: registry.redhat.io/mta/mta-ui-rhel9
+          - mirrors: [registry.stage.redhat.io/mta/java-external-provider-rhel9]
+            source: registry.redhat.io/mta/java-external-provider-rhel9
+          - mirrors: [registry.stage.redhat.io/mta/dotnet-external-provider-rhel9]
+            source: registry.redhat.io/mta/dotnet-external-provider-rhel9
+          - mirrors: [registry.stage.redhat.io/mta/generic-external-provider-rhel9]
+            source: registry.redhat.io/mta/generic-external-provider-rhel9
+          - mirrors: [registry.stage.redhat.io/mta/nodejs-external-provider-rhel9]
+            source: registry.redhat.io/mta/nodejs-external-provider-rhel9
           - mirrors: [registry.stage.redhat.io/rhel8/postgresql-12]
             source: registry.redhat.io/rhel8/postgresql-12
         EOF

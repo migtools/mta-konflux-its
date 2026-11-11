@@ -29,7 +29,7 @@ spec:
 
   steps:
     - name: extract
-      image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+      image: registry.access.redhat.com/ubi9/ubi:latest
       script: |
         #!/bin/bash
         set -euo pipefail
@@ -37,7 +37,7 @@ spec:
         SNAPSHOT='$(params.snapshotJson)'
 
         echo "Snapshot JSON:"
-        echo "$SNAPSHOT" | python3 -m json.tool || echo "$SNAPSHOT"
+        echo "$SNAPSHOT"
 
         # Extract application name
         APP_NAME=$(echo "$SNAPSHOT" | grep -o '"application":"[^"]*"' | cut -d'"' -f4)
@@ -46,33 +46,33 @@ spec:
 
         # Extract FBC image - find first component with 'fbc' or 'mta-operator' in name
         FBC_IMAGE=$(echo "$SNAPSHOT" | python3 -c "
-        import sys, json
-        try:
-            data = json.load(sys.stdin)
-            components = data.get('components', [])
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    components = data.get('components', [])
 
-            # Find FBC component
-            for comp in components:
-                name = comp.get('name', '')
-                if 'fbc' in name.lower() or 'mta-operator' in name.lower():
-                    image = comp.get('containerImage', '')
-                    if image:
-                        print(image)
-                        sys.exit(0)
+    # Find FBC component
+    for comp in components:
+        name = comp.get('name', '')
+        if 'fbc' in name.lower() or 'mta-operator' in name.lower():
+            image = comp.get('containerImage', '')
+            if image:
+                print(image)
+                sys.exit(0)
 
-            # Fallback: take first component if no FBC found
-            if components:
-                image = components[0].get('containerImage', '')
-                if image:
-                    print(image)
-                    sys.exit(0)
+    # Fallback: take first component if no FBC found
+    if components:
+        image = components[0].get('containerImage', '')
+        if image:
+            print(image)
+            sys.exit(0)
 
-            print('', end='')
-            sys.exit(1)
-        except Exception as e:
-            print(f'Error: {e}', file=sys.stderr)
-            sys.exit(1)
-        ")
+    print('', end='')
+    sys.exit(1)
+except Exception as e:
+    print(f'Error: {e}', file=sys.stderr)
+    sys.exit(1)
+")
 
         if [ -z "$FBC_IMAGE" ]; then
           echo "❌ Failed to extract FBC image from snapshot"

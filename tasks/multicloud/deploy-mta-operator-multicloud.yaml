@@ -205,7 +205,6 @@ spec:
             }
           fi
 
-          echo "Creating ImageDigestMirrorSet with stage registry mirrors..."
           cat <<'EOF' | oc apply -f -
         apiVersion: config.openshift.io/v1
         kind: ImageDigestMirrorSet
@@ -247,24 +246,9 @@ spec:
             source: registry.redhat.io/rhel8/postgresql-12
         EOF
 
-          echo "✅ IDMS created/updated"
-          MIRROR_COUNT=$(oc get imagedigestmirrorset stage-images-mirror-set -o jsonpath='{.spec.imageDigestMirrors[*].source}' | wc -w)
-          echo "   Configured $MIRROR_COUNT image mirrors"
-
           oc patch --type=merge --patch='{"spec":{"paused": false}}' $(oc get mcp -o name)
           oc wait mcp master worker --for condition=updating --timeout=2m 2>/dev/null || true
           oc wait mcp master worker --for condition=updated --timeout=60m
-
-          echo ""
-          echo "======================================"
-          echo "IDMS Configuration Verification"
-          echo "======================================"
-          echo "ImageDigestMirrorSet mirrors configured:"
-          oc get imagedigestmirrorset stage-images-mirror-set -o jsonpath='{.spec.imageDigestMirrors[*].source}' | tr ' ' '\n' | sed 's/^/  - /'
-          echo ""
-          echo "MachineConfigPool status:"
-          oc get mcp -o custom-columns=NAME:.metadata.name,UPDATED:.status.conditions[?\(@.type==\"Updated\"\)].status,UPDATING:.status.conditions[?\(@.type==\"Updating\"\)].status,DEGRADED:.status.conditions[?\(@.type==\"Degraded\"\)].status
-          echo "======================================"
         fi
 
     - name: install-operator
@@ -470,17 +454,5 @@ spec:
 
         echo "✅ MTA UI: https://$UI_ROUTE"
         echo -n "$UI_ROUTE" > $(results.uiRoute.path)
-
-        echo ""
-        echo "======================================"
-        echo "MTA Operator Image Configuration"
-        echo "======================================"
-        echo "Images configured in MTA operator CSV:"
-        oc get csv -n "$NAMESPACE" -o jsonpath='{.items[0].spec.relatedImages[*].image}' | tr ' ' '\n' | grep "mta\|konveyor" | sed 's/^/  - /'
-        echo ""
-        echo "Tackle CR status:"
-        oc get tackle mta -n "$NAMESPACE" -o jsonpath='{.status.conditions[?(@.type=="Successful")]}' | jq -c '.'
-        echo ""
-        echo "======================================"
 
         echo "SUCCESS" > $(results.deploymentStatus.path)

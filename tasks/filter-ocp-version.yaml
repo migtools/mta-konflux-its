@@ -59,11 +59,16 @@ spec:
 
         # Get snapshot name from PipelineRun label
         if [ -z "$PIPELINERUN_NAME" ]; then
-          echo "ERROR: pipelineRunName parameter is empty"
-          echo "Defaulting to RUN (no filter)"
-          echo "true" > $(results.shouldRun.path)
-          echo "unknown" > $(results.ocpVersion.path)
-          exit 0
+          echo ""
+          echo "=========================================="
+          echo "ERROR: MISSING PIPELINE RUN NAME"
+          echo "=========================================="
+          echo ""
+          echo "pipelineRunName parameter is empty"
+          echo "Cannot determine snapshot to filter"
+          echo "Skipping tests to conserve cluster resources."
+          echo "=========================================="
+          exit 1
         fi
 
         echo "Getting snapshot name from PipelineRun: $PIPELINERUN_NAME"
@@ -71,11 +76,19 @@ spec:
           -o jsonpath='{.metadata.labels.appstudio\.openshift\.io/snapshot}' 2>/dev/null || echo "")
 
         if [ -z "$SNAPSHOT_NAME" ]; then
-          echo "WARNING: Could not get snapshot name from PipelineRun label"
-          echo "Defaulting to RUN (no filter)"
-          echo "true" > $(results.shouldRun.path)
-          echo "unknown" > $(results.ocpVersion.path)
-          exit 0
+          echo ""
+          echo "=========================================="
+          echo "ERROR: SNAPSHOT NOT FOUND"
+          echo "=========================================="
+          echo ""
+          echo "Could not get snapshot name from PipelineRun label:"
+          echo "  appstudio.openshift.io/snapshot"
+          echo ""
+          echo "PipelineRun: $PIPELINERUN_NAME"
+          echo ""
+          echo "Skipping tests to conserve cluster resources."
+          echo "=========================================="
+          exit 1
         fi
 
         echo "Snapshot: $SNAPSHOT_NAME"
@@ -86,11 +99,22 @@ spec:
           -o jsonpath='{.metadata.annotations.build\.appstudio\.redhat\.com/target_branch}' 2>/dev/null || echo "")
 
         if [ -z "$TARGET_BRANCH" ]; then
-          echo "WARNING: No target_branch annotation found on snapshot"
-          echo "Defaulting to RUN (no filter)"
-          echo "true" > $(results.shouldRun.path)
-          echo "unknown" > $(results.ocpVersion.path)
-          exit 0
+          echo ""
+          echo "=========================================="
+          echo "ERROR: NO TARGET BRANCH FOUND"
+          echo "=========================================="
+          echo ""
+          echo "Snapshot: $SNAPSHOT_NAME"
+          echo ""
+          echo "This snapshot does not have the required annotation:"
+          echo "  build.appstudio.redhat.com/target_branch"
+          echo ""
+          echo "Cannot determine OCP version for this snapshot."
+          echo "Skipping tests to conserve cluster resources."
+          echo ""
+          echo "Only snapshots with explicit OCP version will be tested."
+          echo "=========================================="
+          exit 1
         fi
 
         echo "Target branch: $TARGET_BRANCH"
@@ -100,11 +124,19 @@ spec:
         if echo "$TARGET_BRANCH" | grep -qE 'ocp-[0-9]+\.[0-9]+'; then
           OCP_VERSION=$(echo "$TARGET_BRANCH" | grep -oE 'ocp-[0-9]+\.[0-9]+' | sed 's/ocp-//')
         else
-          echo "WARNING: Could not extract OCP version from target branch"
-          echo "Defaulting to RUN (no filter)"
-          echo "true" > $(results.shouldRun.path)
-          echo "unknown" > $(results.ocpVersion.path)
-          exit 0
+          echo ""
+          echo "=========================================="
+          echo "ERROR: CANNOT EXTRACT OCP VERSION"
+          echo "=========================================="
+          echo ""
+          echo "Target branch: $TARGET_BRANCH"
+          echo ""
+          echo "Expected format: ...ocp-X.XX..."
+          echo "Example: art-mta-8.2-ocp-4.16-assembly-stream-fbc"
+          echo ""
+          echo "Skipping tests to conserve cluster resources."
+          echo "=========================================="
+          exit 1
         fi
 
         echo "Detected OCP version: $OCP_VERSION"

@@ -32,10 +32,10 @@ spec:
       value: $(tasks.extract-operator-nvr.results.operatorNVR)
     - name: CLUSTER_ID
       description: Cluster ID
-      value: $(tasks.determine-cluster-id.results.clusterId)
+      value: $(tasks.merge-deploy-results.results.clusterId)
     - name: DEPLOYMENT_STATUS
       description: Operator deployment status
-      value: $(tasks.deploy-operator.results.deploymentStatus)
+      value: $(tasks.merge-deploy-results.results.deploymentStatus)
     - name: TEST_STATUS
       description: Tier-0 test result
       value: $(tasks.run-tier0-tests.results.testStatus)
@@ -203,48 +203,17 @@ spec:
           - name: pathInRepo
             value: tasks/multicloud/ocpctl-provision.yaml
 
-    # Determine which cluster ID to use (existing or newly provisioned)
-    - name: determine-cluster-id
+    # Deploy MTA operator - with existing cluster (when existingClusterId is set)
+    - name: deploy-operator-existing
       runAfter:
-        - map-cluster-config
-      params:
-        - name: existingClusterId
-          value: $(params.existingClusterId)
-        - name: provisionedClusterId
-          value: $(tasks.provision-cluster.results.clusterId)
-      taskSpec:
-        params:
-          - name: existingClusterId
-            type: string
-          - name: provisionedClusterId
-            type: string
-        results:
-          - name: clusterId
-        steps:
-          - name: select-cluster
-            image: registry.access.redhat.com/ubi9/ubi-minimal:latest
-            script: |
-              #!/bin/bash
-              set -euo pipefail
-
-              EXISTING='$(params.existingClusterId)'
-              PROVISIONED='$(params.provisionedClusterId)'
-
-              if [ -n "$EXISTING" ]; then
-                echo "Using existing cluster: $EXISTING"
-                echo -n "$EXISTING" > $(results.clusterId.path)
-              else
-                echo "Using provisioned cluster: $PROVISIONED"
-                echo -n "$PROVISIONED" > $(results.clusterId.path)
-              fi
-
-    # Deploy MTA operator (uses multicloud task for ROSA/ARO)
-    - name: deploy-operator
-      runAfter:
-        - determine-cluster-id
+        - extract-fbc-image
+      when:
+        - input: "$(params.existingClusterId)"
+          operator: notin
+          values: [""]
       params:
         - name: clusterId
-          value: $(tasks.determine-cluster-id.results.clusterId)
+          value: $(params.existingClusterId)
         - name: fbcImage
           value: $(tasks.extract-fbc-image.results.fbcImage)
         - name: snapshotJson
@@ -261,13 +230,87 @@ spec:
           - name: pathInRepo
             value: tasks/multicloud/deploy-mta-operator-multicloud.yaml
 
+    # Deploy MTA operator - with provisioned cluster (when existingClusterId is empty)
+    - name: deploy-operator-provisioned
+      runAfter:
+        - provision-cluster
+      when:
+        - input: "$(params.existingClusterId)"
+          operator: in
+          values: [""]
+      params:
+        - name: clusterId
+          value: $(tasks.provision-cluster.results.clusterId)
+        - name: fbcImage
+          value: $(tasks.extract-fbc-image.results.fbcImage)
+        - name: snapshotJson
+          value: $(params.SNAPSHOT)
+        - name: configureRegistryMirror
+          value: "true"  # IDMS setup for stage registry mirrors
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: tier0-matrix-execution
+          - name: pathInRepo
+            value: tasks/multicloud/deploy-mta-operator-multicloud.yaml
+
+    # Merge deploy results (one of the deploy tasks ran, get its results)
+    - name: merge-deploy-results
+      runAfter:
+        - deploy-operator-existing
+        - deploy-operator-provisioned
+      taskSpec:
+        results:
+          - name: uiRoute
+          - name: deploymentStatus
+          - name: clusterId
+        steps:
+          - name: merge
+            image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+            script: |
+              #!/bin/bash
+              # One of the deploy tasks ran, use its results
+              # Tekton provides empty string for skipped tasks
+              ROUTE_EXISTING="$(params.uiRouteExisting)"
+              ROUTE_PROVISIONED="$(params.uiRouteProvisioned)"
+              STATUS_EXISTING="$(params.statusExisting)"
+              STATUS_PROVISIONED="$(params.statusProvisioned)"
+              CLUSTER_EXISTING="$(params.clusterExisting)"
+              CLUSTER_PROVISIONED="$(params.clusterProvisioned)"
+
+              if [ -n "$ROUTE_EXISTING" ]; then
+                echo -n "$ROUTE_EXISTING" > $(results.uiRoute.path)
+                echo -n "$STATUS_EXISTING" > $(results.deploymentStatus.path)
+                echo -n "$CLUSTER_EXISTING" > $(results.clusterId.path)
+              else
+                echo -n "$ROUTE_PROVISIONED" > $(results.uiRoute.path)
+                echo -n "$STATUS_PROVISIONED" > $(results.deploymentStatus.path)
+                echo -n "$CLUSTER_PROVISIONED" > $(results.clusterId.path)
+              fi
+        params:
+          - name: uiRouteExisting
+            value: $(tasks.deploy-operator-existing.results.uiRoute)
+          - name: uiRouteProvisioned
+            value: $(tasks.deploy-operator-provisioned.results.uiRoute)
+          - name: statusExisting
+            value: $(tasks.deploy-operator-existing.results.deploymentStatus)
+          - name: statusProvisioned
+            value: $(tasks.deploy-operator-provisioned.results.deploymentStatus)
+          - name: clusterExisting
+            value: $(params.existingClusterId)
+          - name: clusterProvisioned
+            value: $(tasks.provision-cluster.results.clusterId)
+
     # Run tier-0 UI tests
     - name: run-tier0-tests
       runAfter:
-        - deploy-operator
+        - merge-deploy-results
       params:
         - name: uiRoute
-          value: $(tasks.deploy-operator.results.uiRoute)
+          value: $(tasks.merge-deploy-results.results.uiRoute)
         - name: testTags
           value: "@tier0"
         - name: gitBranch
@@ -325,7 +368,7 @@ spec:
         - name: operatorNVR
           value: $(tasks.extract-operator-nvr.results.operatorNVR)
         - name: clusterId
-          value: $(tasks.determine-cluster-id.results.clusterId)
+          value: $(tasks.merge-deploy-results.results.clusterId)
         - name: pipelineRunName
           value: $(context.pipelineRun.name)
         - name: triggeredBy

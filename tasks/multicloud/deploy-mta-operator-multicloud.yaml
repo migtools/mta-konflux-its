@@ -214,6 +214,8 @@ spec:
           imageDigestMirrors:
           - mirrors: [registry.stage.redhat.io/mta/mta-analyzer-addon-rhel9]
             source: registry.redhat.io/mta/mta-analyzer-addon-rhel9
+          - mirrors: [registry.stage.redhat.io/mta/mta-discovery-addon-rhel9]
+            source: registry.redhat.io/mta/mta-discovery-addon-rhel9
           - mirrors: [registry.stage.redhat.io/mta/mta-cli-rhel9]
             source: registry.redhat.io/mta/mta-cli-rhel9
           - mirrors: [registry.stage.redhat.io/mta/mta-hub-rhel9]

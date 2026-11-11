@@ -32,34 +32,34 @@ spec:
       value: $(tasks.extract-operator-nvr.results.operatorNVR)
     - name: CLUSTER_ID
       description: Cluster ID
-      value: $(tasks.merge-deploy-results.results.clusterId)
+      value: $(tasks.provision-cluster.results.clusterId)
     - name: DEPLOYMENT_STATUS
       description: Operator deployment status
-      value: $(tasks.merge-deploy-results.results.deploymentStatus)
+      value: $(tasks.deploy-operator.results.deploymentStatus)
     - name: TEST_STATUS
       description: Tier-0 test result
       value: $(tasks.run-tier0-tests.results.testStatus)
 
   tasks:
-    # Extract FBC image from snapshot (doesn't require component label)
-    - name: extract-fbc-image
+    # Parse snapshot metadata (extracts FBC component image)
+    - name: parse-metadata
       params:
-        - name: snapshotJson
+        - name: SNAPSHOT
           value: $(params.SNAPSHOT)
       taskRef:
         resolver: git
         params:
           - name: url
-            value: https://github.com/migtools/mta-konflux-its
+            value: https://github.com/konflux-ci/integration-examples
           - name: revision
-            value: tier0-matrix-execution
+            value: a1a70b0a1cfc96f5216d472fbd60f6b42780b3e5
           - name: pathInRepo
-            value: tasks/extract-fbc-image.yaml
+            value: tasks/test_metadata.yaml
 
     # Filter by OCP version - only allow tier0 tests on 4.22
     - name: filter-ocp-version
       runAfter:
-        - extract-fbc-image
+        - parse-metadata
       params:
         - name: pipelineRunName
           value: $(context.pipelineRun.name)
@@ -97,7 +97,7 @@ spec:
     # Determine test branch (use parameter if provided, otherwise auto-detect from MTA version)
     - name: map-test-branch
       runAfter:
-        - extract-fbc-image
+        - parse-metadata
       params:
         - name: snapshotJson
           value: $(params.SNAPSHOT)
@@ -169,161 +169,74 @@ spec:
           - name: pathInRepo
             value: tasks/multicloud/map-cluster-profile.yaml
 
-    # Provision fresh cluster via OCPCTL (skipped if existingClusterId is provided)
+    # Use existing cluster (for debugging)
     - name: provision-cluster
       runAfter:
         - extract-operator-nvr
         - map-cluster-config
-      when:
-        - input: "$(params.existingClusterId)"
-          operator: in
-          values: [""]
       params:
+        - name: existingClusterId
+          value: $(params.existingClusterId)
         - name: clusterName
           value: $(context.pipelineRun.name)
-        - name: profile
-          value: $(tasks.map-cluster-config.results.profile)
-        - name: platform
-          value: $(tasks.map-cluster-config.results.platform)
-        - name: clusterType
-          value: $(tasks.map-cluster-config.results.clusterType)
-        - name: version
-          value: $(tasks.map-cluster-config.results.version)
-        - name: region
-          value: $(tasks.map-cluster-config.results.region)
-        - name: waitTimeout
-          value: $(tasks.map-cluster-config.results.waitTimeout)
-      taskRef:
-        resolver: git
-        params:
-          - name: url
-            value: https://github.com/migtools/mta-konflux-its
-          - name: revision
-            value: tier0-matrix-execution
-          - name: pathInRepo
-            value: tasks/multicloud/ocpctl-provision.yaml
-
-    # Deploy MTA operator - with existing cluster (when existingClusterId is set)
-    - name: deploy-operator-existing
-      runAfter:
-        - extract-fbc-image
-      when:
-        - input: "$(params.existingClusterId)"
-          operator: notin
-          values: [""]
-      params:
-        - name: clusterId
-          value: $(params.existingClusterId)
-        - name: fbcImage
-          value: $(tasks.extract-fbc-image.results.fbcImage)
-        - name: snapshotJson
-          value: $(params.SNAPSHOT)
-        - name: configureRegistryMirror
-          value: "true"  # IDMS setup for stage registry mirrors
-      taskRef:
-        resolver: git
-        params:
-          - name: url
-            value: https://github.com/migtools/mta-konflux-its
-          - name: revision
-            value: tier0-matrix-execution
-          - name: pathInRepo
-            value: tasks/multicloud/deploy-mta-operator-multicloud.yaml
-
-    # Deploy MTA operator - with provisioned cluster (when existingClusterId is empty)
-    - name: deploy-operator-provisioned
-      runAfter:
-        - provision-cluster
-      when:
-        - input: "$(params.existingClusterId)"
-          operator: in
-          values: [""]
-      params:
-        - name: clusterId
-          value: $(tasks.provision-cluster.results.clusterId)
-        - name: fbcImage
-          value: $(tasks.extract-fbc-image.results.fbcImage)
-        - name: snapshotJson
-          value: $(params.SNAPSHOT)
-        - name: configureRegistryMirror
-          value: "true"  # IDMS setup for stage registry mirrors
-      taskRef:
-        resolver: git
-        params:
-          - name: url
-            value: https://github.com/migtools/mta-konflux-its
-          - name: revision
-            value: tier0-matrix-execution
-          - name: pathInRepo
-            value: tasks/multicloud/deploy-mta-operator-multicloud.yaml
-
-    # Merge deploy results (one of the deploy tasks ran, get its results)
-    - name: merge-deploy-results
-      runAfter:
-        - deploy-operator-existing
-        - deploy-operator-provisioned
-      params:
-        - name: uiRouteExisting
-          value: $(tasks.deploy-operator-existing.results.uiRoute)
-        - name: uiRouteProvisioned
-          value: $(tasks.deploy-operator-provisioned.results.uiRoute)
-        - name: statusExisting
-          value: $(tasks.deploy-operator-existing.results.deploymentStatus)
-        - name: statusProvisioned
-          value: $(tasks.deploy-operator-provisioned.results.deploymentStatus)
-        - name: clusterExisting
-          value: $(params.existingClusterId)
-        - name: clusterProvisioned
-          value: $(tasks.provision-cluster.results.clusterId)
       taskSpec:
         params:
-          - name: uiRouteExisting
+          - name: existingClusterId
             type: string
-          - name: uiRouteProvisioned
-            type: string
-          - name: statusExisting
-            type: string
-          - name: statusProvisioned
-            type: string
-          - name: clusterExisting
-            type: string
-          - name: clusterProvisioned
+          - name: clusterName
             type: string
         results:
-          - name: uiRoute
-          - name: deploymentStatus
           - name: clusterId
+          - name: clusterName
+          - name: provisionStatus
         steps:
-          - name: merge
+          - name: use-existing-cluster
             image: registry.access.redhat.com/ubi9/ubi-minimal:latest
             script: |
               #!/bin/bash
-              # One of the deploy tasks ran, use its results
-              # Tekton provides empty string for skipped tasks
-              ROUTE_EXISTING="$(params.uiRouteExisting)"
-              ROUTE_PROVISIONED="$(params.uiRouteProvisioned)"
-              STATUS_EXISTING="$(params.statusExisting)"
-              STATUS_PROVISIONED="$(params.statusProvisioned)"
-              CLUSTER_EXISTING="$(params.clusterExisting)"
-              CLUSTER_PROVISIONED="$(params.clusterProvisioned)"
+              set -euo pipefail
 
-              if [ -n "$ROUTE_EXISTING" ]; then
-                echo -n "$ROUTE_EXISTING" > $(results.uiRoute.path)
-                echo -n "$STATUS_EXISTING" > $(results.deploymentStatus.path)
-                echo -n "$CLUSTER_EXISTING" > $(results.clusterId.path)
-              else
-                echo -n "$ROUTE_PROVISIONED" > $(results.uiRoute.path)
-                echo -n "$STATUS_PROVISIONED" > $(results.deploymentStatus.path)
-                echo -n "$CLUSTER_PROVISIONED" > $(results.clusterId.path)
-              fi
+              EXISTING='$(params.existingClusterId)'
+
+              echo "Using existing cluster: $EXISTING"
+              echo -n "$EXISTING" > $(results.clusterId.path)
+              echo -n "existing-$(params.clusterName)" > $(results.clusterName.path)
+              echo -n "READY" > $(results.provisionStatus.path)
+
+    # Deploy MTA operator (uses multicloud task for ROSA/ARO)
+    - name: deploy-operator
+      runAfter:
+        - provision-cluster
+      when:
+        - input: "$(tasks.provision-cluster.results.provisionStatus)"
+          operator: in
+          values: ["READY"]
+      params:
+        - name: clusterId
+          value: $(tasks.provision-cluster.results.clusterId)
+        - name: fbcImage
+          value: $(tasks.parse-metadata.results.component-container-image)
+        - name: snapshotJson
+          value: $(params.SNAPSHOT)
+        - name: configureRegistryMirror
+          value: "true"  # IDMS setup for stage registry mirrors
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/migtools/mta-konflux-its
+          - name: revision
+            value: tier0-matrix-execution
+          - name: pathInRepo
+            value: tasks/multicloud/deploy-mta-operator-multicloud.yaml
 
     # Run tier-0 UI tests
     - name: run-tier0-tests
       runAfter:
-        - merge-deploy-results
+        - deploy-operator
       params:
         - name: uiRoute
-          value: $(tasks.merge-deploy-results.results.uiRoute)
+          value: $(tasks.deploy-operator.results.uiRoute)
         - name: testTags
           value: "@tier0"
         - name: gitBranch
@@ -377,11 +290,11 @@ spec:
         - name: clusterTypeLabel
           value: $(tasks.map-cluster-config.results.clusterTypeLabel)
         - name: snapshotName
-          value: $(tasks.extract-fbc-image.results.applicationName)
+          value: $(tasks.parse-metadata.results.application-name)
         - name: operatorNVR
           value: $(tasks.extract-operator-nvr.results.operatorNVR)
         - name: clusterId
-          value: $(tasks.merge-deploy-results.results.clusterId)
+          value: $(tasks.provision-cluster.results.clusterId)
         - name: pipelineRunName
           value: $(context.pipelineRun.name)
         - name: triggeredBy

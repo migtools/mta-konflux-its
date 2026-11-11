@@ -1,0 +1,84 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: extract-fbc-image
+  labels:
+    app.kubernetes.io/version: "0.1"
+  annotations:
+    tekton.dev/pipelines.minVersion: "0.12.1"
+    tekton.dev/categories: Utility
+    tekton.dev/tags: snapshot,konflux
+    tekton.dev/displayName: "Extract FBC Image from Snapshot"
+spec:
+  description: >-
+    Extracts the FBC catalog image from a Konflux snapshot JSON.
+
+    Works for IntegrationTestScenarios where component labels may not be set.
+    Finds the first component whose name contains 'fbc' or 'mta-operator'.
+
+  params:
+    - name: snapshotJson
+      type: string
+      description: Konflux snapshot JSON
+
+  results:
+    - name: fbcImage
+      description: FBC catalog container image reference (with digest)
+    - name: applicationName
+      description: Application name from snapshot
+
+  steps:
+    - name: extract
+      image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+      script: |
+        #!/bin/bash
+        set -euo pipefail
+
+        SNAPSHOT='$(params.snapshotJson)'
+
+        echo "Snapshot JSON:"
+        echo "$SNAPSHOT" | python3 -m json.tool || echo "$SNAPSHOT"
+
+        # Extract application name
+        APP_NAME=$(echo "$SNAPSHOT" | grep -o '"application":"[^"]*"' | cut -d'"' -f4)
+        echo "Application: $APP_NAME"
+        echo -n "$APP_NAME" > $(results.applicationName.path)
+
+        # Extract FBC image - find first component with 'fbc' or 'mta-operator' in name
+        FBC_IMAGE=$(echo "$SNAPSHOT" | python3 -c "
+        import sys, json
+        try:
+            data = json.load(sys.stdin)
+            components = data.get('components', [])
+
+            # Find FBC component
+            for comp in components:
+                name = comp.get('name', '')
+                if 'fbc' in name.lower() or 'mta-operator' in name.lower():
+                    image = comp.get('containerImage', '')
+                    if image:
+                        print(image)
+                        sys.exit(0)
+
+            # Fallback: take first component if no FBC found
+            if components:
+                image = components[0].get('containerImage', '')
+                if image:
+                    print(image)
+                    sys.exit(0)
+
+            print('', end='')
+            sys.exit(1)
+        except Exception as e:
+            print(f'Error: {e}', file=sys.stderr)
+            sys.exit(1)
+        ")
+
+        if [ -z "$FBC_IMAGE" ]; then
+          echo "❌ Failed to extract FBC image from snapshot"
+          echo "Snapshot: $SNAPSHOT"
+          exit 1
+        fi
+
+        echo "✅ FBC Image: $FBC_IMAGE"
+        echo -n "$FBC_IMAGE" > $(results.fbcImage.path)

@@ -108,7 +108,7 @@ spec:
             type: array
         steps:
           - name: parse
-            image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+            image: registry.access.redhat.com/ubi9/ubi:latest
             script: |
               #!/bin/bash
               set -euo pipefail
@@ -116,13 +116,12 @@ spec:
               TYPES='$(params.clusterTypeString)'
               echo "Parsing cluster types: $TYPES"
 
-              # Convert comma-separated to array (one per line)
-              # Use printf to ensure proper format
-              IFS=',' read -ra TYPE_ARRAY <<< "$TYPES"
-              printf '%s\n' "${TYPE_ARRAY[@]}" > $(results.clusterTypes.path)
+              # Convert comma-separated to JSON array
+              # Tekton requires array results in JSON format
+              python3 -c "import sys, json; print(json.dumps('$TYPES'.split(',')))" > $(results.clusterTypes.path)
 
-              echo "Cluster types for parallel execution:"
-              cat $(results.clusterTypes.path) | sed 's/^/  - /'
+              echo "Cluster types for parallel execution (JSON array):"
+              cat $(results.clusterTypes.path)
 
     # Determine test branch (use parameter if provided, otherwise auto-detect from MTA version)
     - name: map-test-branch

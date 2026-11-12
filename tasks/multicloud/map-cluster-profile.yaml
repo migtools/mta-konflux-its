@@ -53,7 +53,7 @@ spec:
             OCPCTL_CLUSTER_TYPE="aro"
             VERSION="4.22"
             REGION="eastus"
-            TIMEOUT="7200"  # 2 hours for ARO
+            TIMEOUT="1200"  # 20 minutes for ARO
             LABEL="ARO (Azure Red Hat OpenShift)"
             ;;
           rosa)
@@ -62,7 +62,7 @@ spec:
             OCPCTL_CLUSTER_TYPE="rosa"
             VERSION="4.22"
             REGION="us-east-1"
-            TIMEOUT="5400"  # 1.5 hours for ROSA
+            TIMEOUT="1200"  # 20 minutes for ROSA
             LABEL="ROSA (Red Hat OpenShift Service on AWS)"
             ;;
           rosa-sts)
@@ -71,7 +71,7 @@ spec:
             OCPCTL_CLUSTER_TYPE="rosa"
             VERSION="4.22"
             REGION="us-east-1"
-            TIMEOUT="5400"  # 1.5 hours for ROSA-STS
+            TIMEOUT="1200"  # 20 minutes for ROSA-STS
             LABEL="ROSA-STS (ROSA with STS)"
             ;;
           ocp-aws)
@@ -80,7 +80,7 @@ spec:
             OCPCTL_CLUSTER_TYPE="openshift"
             VERSION="4.22"
             REGION="us-east-1"
-            TIMEOUT="3600"  # 1 hour for OCP on AWS
+            TIMEOUT="1200"  # 20 minutes for OCP on AWS
             LABEL="OCP-AWS (OpenShift on AWS)"
             ;;
           *)

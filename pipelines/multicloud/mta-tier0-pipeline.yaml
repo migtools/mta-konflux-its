@@ -117,7 +117,9 @@ spec:
               echo "Parsing cluster types: $TYPES"
 
               # Convert comma-separated to array (one per line)
-              echo "$TYPES" | tr ',' '\n' > $(results.clusterTypes.path)
+              # Use printf to ensure proper format
+              IFS=',' read -ra TYPE_ARRAY <<< "$TYPES"
+              printf '%s\n' "${TYPE_ARRAY[@]}" > $(results.clusterTypes.path)
 
               echo "Cluster types for parallel execution:"
               cat $(results.clusterTypes.path) | sed 's/^/  - /'

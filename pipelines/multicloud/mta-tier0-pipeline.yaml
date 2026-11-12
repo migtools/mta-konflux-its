@@ -274,7 +274,7 @@ spec:
             value: $(tasks.parse-cluster-types.results.clusterTypes[*])
       params:
         - name: uiRoute
-          value: $(tasks.deploy-operator.results.uiRoute[*])
+          value: $(tasks.deploy-operator.results.uiRoute)
         - name: testTags
           value: "@tier0"
         - name: gitBranch
@@ -297,7 +297,7 @@ spec:
           - name: clusterType
             value: $(tasks.parse-cluster-types.results.clusterTypes[*])
       when:
-        - input: "$(tasks.provision-cluster.status[*])"
+        - input: "$(tasks.provision-cluster.status)"
           operator: in
           values: ["Succeeded"]
         - input: "$(params.existingClusterId)"
@@ -305,9 +305,9 @@ spec:
           values: [""]
       params:
         - name: clusterId
-          value: $(tasks.provision-cluster.results.clusterId[*])
+          value: $(tasks.provision-cluster.results.clusterId)
         - name: clusterName
-          value: $(tasks.provision-cluster.results.clusterName[*])
+          value: $(tasks.provision-cluster.results.clusterName)
       taskRef:
         resolver: git
         params:
@@ -325,16 +325,16 @@ spec:
           - name: clusterType
             value: $(tasks.parse-cluster-types.results.clusterTypes[*])
       when:
-        - input: "$(tasks.run-tier0-tests.status[*])"
+        - input: "$(tasks.run-tier0-tests.status)"
           operator: in
           values: ["Succeeded", "Failed", "None"]
       params:
         - name: clusterTypeLabel
-          value: $(tasks.map-cluster-config.results.clusterTypeLabel[*])
+          value: $(tasks.map-cluster-config.results.clusterTypeLabel)
         - name: testStatus
-          value: $(tasks.run-tier0-tests.status[*])
+          value: $(tasks.run-tier0-tests.status)
         - name: clusterId
-          value: $(tasks.provision-cluster.results.clusterId[*])
+          value: $(tasks.provision-cluster.results.clusterId)
         - name: snapshotName
           value: $(tasks.extract-fbc-image.results.applicationName)
         - name: operatorNVR

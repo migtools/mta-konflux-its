@@ -209,20 +209,20 @@ spec:
       matrix:
         params:
           - name: clusterType
-            value: $(tasks.parse-cluster-types.results.clusterTypes[*])
+            value: $(tasks.map-cluster-config.results.clusterType[*])
+          - name: profile
+            value: $(tasks.map-cluster-config.results.profile[*])
+          - name: platform
+            value: $(tasks.map-cluster-config.results.platform[*])
+          - name: version
+            value: $(tasks.map-cluster-config.results.version[*])
+          - name: region
+            value: $(tasks.map-cluster-config.results.region[*])
+          - name: waitTimeout
+            value: $(tasks.map-cluster-config.results.waitTimeout[*])
       params:
         - name: clusterName
           value: $(context.pipelineRun.name)
-        - name: profile
-          value: $(tasks.map-cluster-config.results.profile)
-        - name: platform
-          value: $(tasks.map-cluster-config.results.platform)
-        - name: version
-          value: $(tasks.map-cluster-config.results.version)
-        - name: region
-          value: $(tasks.map-cluster-config.results.region)
-        - name: waitTimeout
-          value: $(tasks.map-cluster-config.results.waitTimeout)
       taskRef:
         resolver: git
         params:

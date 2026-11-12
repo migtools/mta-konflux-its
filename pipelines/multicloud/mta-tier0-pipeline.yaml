@@ -207,22 +207,22 @@ spec:
         - extract-operator-nvr
         - map-cluster-config
       matrix:
-        include:
+        params:
           - name: clusterType
             value: $(tasks.parse-cluster-types.results.clusterTypes[*])
-          - name: profile
-            value: $(tasks.map-cluster-config.results.profile[*])
-          - name: platform
-            value: $(tasks.map-cluster-config.results.platform[*])
-          - name: version
-            value: $(tasks.map-cluster-config.results.version[*])
-          - name: region
-            value: $(tasks.map-cluster-config.results.region[*])
-          - name: waitTimeout
-            value: $(tasks.map-cluster-config.results.waitTimeout[*])
       params:
         - name: clusterName
           value: $(context.pipelineRun.name)
+        - name: profile
+          value: $(tasks.map-cluster-config.results.profile[*])
+        - name: platform
+          value: $(tasks.map-cluster-config.results.platform[*])
+        - name: version
+          value: $(tasks.map-cluster-config.results.version[*])
+        - name: region
+          value: $(tasks.map-cluster-config.results.region[*])
+        - name: waitTimeout
+          value: $(tasks.map-cluster-config.results.waitTimeout[*])
       taskRef:
         resolver: git
         params:
@@ -238,16 +238,16 @@ spec:
       runAfter:
         - provision-cluster
       matrix:
-        include:
+        params:
           - name: clusterType
             value: $(tasks.parse-cluster-types.results.clusterTypes[*])
-          - name: clusterId
-            value: $(tasks.provision-cluster.results.clusterId[*])
       when:
         - input: "$(tasks.provision-cluster.results.provisionStatus[*])"
           operator: in
           values: ["READY"]
       params:
+        - name: clusterId
+          value: $(tasks.provision-cluster.results.clusterId[*])
         - name: fbcImage
           value: $(tasks.extract-fbc-image.results.fbcImage)
         - name: snapshotJson
@@ -269,12 +269,12 @@ spec:
       runAfter:
         - deploy-operator
       matrix:
-        include:
+        params:
           - name: clusterType
             value: $(tasks.parse-cluster-types.results.clusterTypes[*])
-          - name: uiRoute
-            value: $(tasks.deploy-operator.results.uiRoute[*])
       params:
+        - name: uiRoute
+          value: $(tasks.deploy-operator.results.uiRoute[*])
         - name: testTags
           value: "@tier0"
         - name: gitBranch
@@ -293,13 +293,9 @@ spec:
     # Destroy clusters after tests complete - runs for each cluster
     - name: destroy-cluster
       matrix:
-        include:
+        params:
           - name: clusterType
             value: $(tasks.parse-cluster-types.results.clusterTypes[*])
-          - name: clusterId
-            value: $(tasks.provision-cluster.results.clusterId[*])
-          - name: clusterName
-            value: $(tasks.provision-cluster.results.clusterName[*])
       when:
         - input: "$(tasks.provision-cluster.status[*])"
           operator: in
@@ -307,6 +303,11 @@ spec:
         - input: "$(params.existingClusterId)"
           operator: in
           values: [""]
+      params:
+        - name: clusterId
+          value: $(tasks.provision-cluster.results.clusterId[*])
+        - name: clusterName
+          value: $(tasks.provision-cluster.results.clusterName[*])
       taskRef:
         resolver: git
         params:
@@ -320,26 +321,24 @@ spec:
     # Send Slack notifications - one per cluster
     - name: send-slack-notification
       matrix:
-        include:
+        params:
           - name: clusterType
             value: $(tasks.parse-cluster-types.results.clusterTypes[*])
-          - name: clusterTypeLabel
-            value: $(tasks.map-cluster-config.results.clusterTypeLabel[*])
-          - name: testStatus
-            value: $(tasks.run-tier0-tests.status[*])
-          - name: clusterId
-            value: $(tasks.provision-cluster.results.clusterId[*])
       when:
         - input: "$(tasks.run-tier0-tests.status[*])"
           operator: in
           values: ["Succeeded", "Failed", "None"]
       params:
+        - name: clusterTypeLabel
+          value: $(tasks.map-cluster-config.results.clusterTypeLabel[*])
+        - name: testStatus
+          value: $(tasks.run-tier0-tests.status[*])
+        - name: clusterId
+          value: $(tasks.provision-cluster.results.clusterId[*])
         - name: snapshotName
           value: $(tasks.extract-fbc-image.results.applicationName)
         - name: operatorNVR
           value: $(tasks.extract-operator-nvr.results.operatorNVR)
-        - name: clusterId
-          value: $(tasks.provision-cluster.results.clusterId)
         - name: pipelineRunName
           value: $(context.pipelineRun.name)
         - name: triggeredBy

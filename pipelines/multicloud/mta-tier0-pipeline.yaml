@@ -14,7 +14,7 @@ spec:
       description: Application Snapshot JSON (provided by ITS)
       type: string
     - name: clusterType
-      description: Cluster type (aro, rosa, rosa-sts, ocp-aws)
+      description: Cluster types to test (comma-separated for parallel execution, e.g., "rosa,aro")
       type: string
       default: "aro"
     - name: uiTestBranch
@@ -30,15 +30,15 @@ spec:
     - name: OPERATOR_NVR
       description: Operator NVR tested
       value: $(tasks.extract-operator-nvr.results.operatorNVR)
-    - name: CLUSTER_ID
-      description: Cluster ID
-      value: $(tasks.provision-cluster.results.clusterId)
-    - name: DEPLOYMENT_STATUS
-      description: Operator deployment status
-      value: $(tasks.deploy-operator.results.deploymentStatus)
-    - name: TEST_STATUS
-      description: Tier-0 test result
-      value: $(tasks.run-tier0-tests.results.testStatus)
+    - name: CLUSTER_IDS
+      description: Cluster IDs (array - one per cluster type)
+      value: $(tasks.provision-cluster.results.clusterId[*])
+    - name: DEPLOYMENT_STATUSES
+      description: Operator deployment statuses (array - one per cluster type)
+      value: $(tasks.deploy-operator.results.deploymentStatus[*])
+    - name: TEST_STATUSES
+      description: Tier-0 test results (array - one per cluster type)
+      value: $(tasks.run-tier0-tests.results.testStatus[*])
 
   tasks:
     # Extract FBC image from snapshot (doesn't require component label)
@@ -93,6 +93,34 @@ spec:
             value: tier0-matrix-execution
           - name: pathInRepo
             value: tasks/extract-operator-nvr.yaml
+
+    # Parse cluster types into array for matrix execution
+    - name: parse-cluster-types
+      params:
+        - name: clusterTypeString
+          value: $(params.clusterType)
+      taskSpec:
+        params:
+          - name: clusterTypeString
+            type: string
+        results:
+          - name: clusterTypes
+            type: array
+        steps:
+          - name: parse
+            image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+            script: |
+              #!/bin/bash
+              set -euo pipefail
+
+              TYPES='$(params.clusterTypeString)'
+              echo "Parsing cluster types: $TYPES"
+
+              # Convert comma-separated to array (one per line)
+              echo "$TYPES" | tr ',' '\n' > $(results.clusterTypes.path)
+
+              echo "Cluster types for parallel execution:"
+              cat $(results.clusterTypes.path) | sed 's/^/  - /'
 
     # Determine test branch (use parameter if provided, otherwise auto-detect from MTA version)
     - name: map-test-branch
@@ -154,11 +182,14 @@ spec:
               echo "Mapped to test branch: $BRANCH"
               echo -n "$BRANCH" > $(results.testBranch.path)
 
-    # Map cluster configuration (profile, region, timeout)
+    # Map cluster configuration (profile, region, timeout) - runs for each cluster type
     - name: map-cluster-config
-      params:
-        - name: clusterType
-          value: $(params.clusterType)
+      runAfter:
+        - parse-cluster-types
+      matrix:
+        params:
+          - name: clusterType
+            value: $(tasks.parse-cluster-types.results.clusterTypes[*])
       taskRef:
         resolver: git
         params:
@@ -169,11 +200,15 @@ spec:
           - name: pathInRepo
             value: tasks/multicloud/map-cluster-profile.yaml
 
-    # Provision fresh cluster via OCPCTL
+    # Provision fresh clusters via OCPCTL - runs in parallel for each cluster type
     - name: provision-cluster
       runAfter:
         - extract-operator-nvr
         - map-cluster-config
+      matrix:
+        params:
+          - name: clusterType
+            value: $(tasks.parse-cluster-types.results.clusterTypes[*])
       params:
         - name: clusterName
           value: $(context.pipelineRun.name)
@@ -182,7 +217,7 @@ spec:
         - name: platform
           value: $(tasks.map-cluster-config.results.platform)
         - name: clusterType
-          value: $(tasks.map-cluster-config.results.clusterType)
+          value: $(matrix.clusterType)
         - name: version
           value: $(tasks.map-cluster-config.results.version)
         - name: region
@@ -199,10 +234,14 @@ spec:
           - name: pathInRepo
             value: tasks/multicloud/ocpctl-provision.yaml
 
-    # Deploy MTA operator (uses multicloud task for ROSA/ARO)
+    # Deploy MTA operator (uses multicloud task for ROSA/ARO) - runs in parallel for each cluster
     - name: deploy-operator
       runAfter:
         - provision-cluster
+      matrix:
+        params:
+          - name: clusterType
+            value: $(tasks.parse-cluster-types.results.clusterTypes[*])
       when:
         - input: "$(tasks.provision-cluster.results.provisionStatus)"
           operator: in
@@ -226,10 +265,14 @@ spec:
           - name: pathInRepo
             value: tasks/multicloud/deploy-mta-operator-multicloud.yaml
 
-    # Run tier-0 UI tests
+    # Run tier-0 UI tests - runs in parallel for each cluster
     - name: run-tier0-tests
       runAfter:
         - deploy-operator
+      matrix:
+        params:
+          - name: clusterType
+            value: $(tasks.parse-cluster-types.results.clusterTypes[*])
       params:
         - name: uiRoute
           value: $(tasks.deploy-operator.results.uiRoute)
@@ -248,8 +291,12 @@ spec:
             value: tasks/run-ui-e2e-tests.yaml
 
   finally:
-    # Destroy cluster after tests complete (skip if using existing cluster)
+    # Destroy clusters after tests complete - runs for each cluster
     - name: destroy-cluster
+      matrix:
+        params:
+          - name: clusterType
+            value: $(tasks.parse-cluster-types.results.clusterTypes[*])
       when:
         - input: "$(tasks.provision-cluster.status)"
           operator: in
@@ -272,8 +319,12 @@ spec:
           - name: pathInRepo
             value: tasks/ocpctl-cleanup.yaml
 
-    # Send Slack notification
+    # Send Slack notifications - one per cluster
     - name: send-slack-notification
+      matrix:
+        params:
+          - name: clusterType
+            value: $(tasks.parse-cluster-types.results.clusterTypes[*])
       when:
         - input: "$(tasks.run-tier0-tests.status)"
           operator: in
@@ -282,7 +333,7 @@ spec:
         - name: testStatus
           value: $(tasks.run-tier0-tests.status)
         - name: clusterType
-          value: $(params.clusterType)
+          value: $(matrix.clusterType)
         - name: clusterTypeLabel
           value: $(tasks.map-cluster-config.results.clusterTypeLabel)
         - name: snapshotName

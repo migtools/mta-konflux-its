@@ -178,7 +178,7 @@ spec:
         - name: clusterName
           value: $(context.pipelineRun.name)
         - name: clusterType
-          value: $(params.clusterType)
+          value: $(tasks.map-cluster-config.results.clusterType)
         - name: profile
           value: $(tasks.map-cluster-config.results.profile)
         - name: platform

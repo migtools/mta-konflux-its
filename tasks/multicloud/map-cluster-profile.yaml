@@ -51,7 +51,7 @@ spec:
             PROFILE="aro-standard"
             PLATFORM="azure"
             OCPCTL_CLUSTER_TYPE="aro"
-            VERSION="4.22"
+            VERSION="4.21"
             REGION="eastus"
             TIMEOUT="1200"  # 20 minutes for ARO
             LABEL="ARO (Azure Red Hat OpenShift)"

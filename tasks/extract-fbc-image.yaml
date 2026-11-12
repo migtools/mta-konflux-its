@@ -1,0 +1,58 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: extract-fbc-image
+  labels:
+    app.kubernetes.io/version: "0.1"
+  annotations:
+    tekton.dev/pipelines.minVersion: "0.12.1"
+    tekton.dev/categories: Utility
+    tekton.dev/tags: snapshot,konflux
+    tekton.dev/displayName: "Extract FBC Image from Snapshot"
+spec:
+  description: >-
+    Extracts the FBC catalog image from a Konflux snapshot JSON.
+
+    Works for IntegrationTestScenarios where component labels may not be set.
+    Finds the first component whose name contains 'fbc' or 'mta-operator'.
+
+  params:
+    - name: snapshotJson
+      type: string
+      description: Konflux snapshot JSON
+
+  results:
+    - name: fbcImage
+      description: FBC catalog container image reference (with digest)
+    - name: applicationName
+      description: Application name from snapshot
+
+  steps:
+    - name: extract
+      image: registry.access.redhat.com/ubi9/ubi:latest
+      script: |
+        #!/bin/bash
+        set -euo pipefail
+
+        SNAPSHOT='$(params.snapshotJson)'
+
+        echo "Snapshot JSON:"
+        echo "$SNAPSHOT"
+
+        # Extract application name
+        APP_NAME=$(echo "$SNAPSHOT" | grep -o '"application":"[^"]*"' | cut -d'"' -f4)
+        echo "Application: $APP_NAME"
+        echo -n "$APP_NAME" > $(results.applicationName.path)
+
+        # Extract FBC image - find first component's containerImage
+        # The snapshot typically has one component for FBC builds
+        FBC_IMAGE=$(echo "$SNAPSHOT" | grep -o '"containerImage":"[^"]*"' | head -1 | cut -d'"' -f4)
+
+        if [ -z "$FBC_IMAGE" ]; then
+          echo "❌ Failed to extract FBC image from snapshot"
+          echo "Snapshot: $SNAPSHOT"
+          exit 1
+        fi
+
+        echo "✅ FBC Image: $FBC_IMAGE"
+        echo -n "$FBC_IMAGE" > $(results.fbcImage.path)

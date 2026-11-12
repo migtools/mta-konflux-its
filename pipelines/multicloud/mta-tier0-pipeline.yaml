@@ -14,11 +14,15 @@ spec:
       description: Application Snapshot JSON (provided by ITS)
       type: string
     - name: clusterType
-      description: Cluster type (aro, rosa, rosa-sts, ocp-aws)
+      description: Cluster type to test (aro, rosa, rosa-sts, or ocp-aws)
       type: string
-      default: "aro"
+      default: "rosa"
     - name: uiTestBranch
       description: Branch of mta-tackle2-ui to use for tier0 tests (auto-detected from MTA version if empty)
+      type: string
+      default: ""
+    - name: existingClusterId
+      description: Use existing cluster instead of provisioning (for debugging) - leave empty to provision new cluster
       type: string
       default: ""
 
@@ -37,25 +41,25 @@ spec:
       value: $(tasks.run-tier0-tests.results.testStatus)
 
   tasks:
-    # Parse snapshot metadata (extracts FBC component image)
-    - name: parse-metadata
+    # Extract FBC image from snapshot (doesn't require component label)
+    - name: extract-fbc-image
       params:
-        - name: SNAPSHOT
+        - name: snapshotJson
           value: $(params.SNAPSHOT)
       taskRef:
         resolver: git
         params:
           - name: url
-            value: https://github.com/konflux-ci/integration-examples
+            value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: a1a70b0a1cfc96f5216d472fbd60f6b42780b3e5
+            value: tier0-matrix-execution
           - name: pathInRepo
-            value: tasks/test_metadata.yaml
+            value: tasks/extract-fbc-image.yaml
 
     # Filter by OCP version - only allow tier0 tests on 4.22
     - name: filter-ocp-version
       runAfter:
-        - parse-metadata
+        - extract-fbc-image
       params:
         - name: pipelineRunName
           value: $(context.pipelineRun.name)
@@ -67,7 +71,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: tier0-matrix-execution
           - name: pathInRepo
             value: tasks/filter-ocp-version.yaml
 
@@ -86,14 +90,14 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: tier0-matrix-execution
           - name: pathInRepo
             value: tasks/extract-operator-nvr.yaml
 
     # Determine test branch (use parameter if provided, otherwise auto-detect from MTA version)
     - name: map-test-branch
       runAfter:
-        - parse-metadata
+        - extract-fbc-image
       params:
         - name: snapshotJson
           value: $(params.SNAPSHOT)
@@ -161,7 +165,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: tier0-matrix-execution
           - name: pathInRepo
             value: tasks/multicloud/map-cluster-profile.yaml
 
@@ -173,12 +177,12 @@ spec:
       params:
         - name: clusterName
           value: $(context.pipelineRun.name)
+        - name: clusterType
+          value: $(tasks.map-cluster-config.results.clusterType)
         - name: profile
           value: $(tasks.map-cluster-config.results.profile)
         - name: platform
           value: $(tasks.map-cluster-config.results.platform)
-        - name: clusterType
-          value: $(tasks.map-cluster-config.results.clusterType)
         - name: version
           value: $(tasks.map-cluster-config.results.version)
         - name: region
@@ -191,7 +195,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: tier0-matrix-execution
           - name: pathInRepo
             value: tasks/multicloud/ocpctl-provision.yaml
 
@@ -207,7 +211,7 @@ spec:
         - name: clusterId
           value: $(tasks.provision-cluster.results.clusterId)
         - name: fbcImage
-          value: $(tasks.parse-metadata.results.component-container-image)
+          value: $(tasks.extract-fbc-image.results.fbcImage)
         - name: snapshotJson
           value: $(params.SNAPSHOT)
         - name: configureRegistryMirror
@@ -218,7 +222,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: tier0-matrix-execution
           - name: pathInRepo
             value: tasks/multicloud/deploy-mta-operator-multicloud.yaml
 
@@ -239,7 +243,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: tier0-matrix-execution
           - name: pathInRepo
             value: tasks/run-ui-e2e-tests.yaml
 
@@ -250,6 +254,9 @@ spec:
         - input: "$(tasks.provision-cluster.status)"
           operator: in
           values: ["Succeeded"]
+        - input: "$(params.existingClusterId)"
+          operator: in
+          values: [""]
       params:
         - name: clusterId
           value: $(tasks.provision-cluster.results.clusterId)
@@ -261,7 +268,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: tier0-matrix-execution
           - name: pathInRepo
             value: tasks/ocpctl-cleanup.yaml
 
@@ -272,18 +279,18 @@ spec:
           operator: in
           values: ["Succeeded", "Failed", "None"]
       params:
-        - name: testStatus
-          value: $(tasks.run-tier0-tests.status)
         - name: clusterType
           value: $(params.clusterType)
         - name: clusterTypeLabel
           value: $(tasks.map-cluster-config.results.clusterTypeLabel)
-        - name: snapshotName
-          value: $(tasks.parse-metadata.results.application-name)
-        - name: operatorNVR
-          value: $(tasks.extract-operator-nvr.results.operatorNVR)
+        - name: testStatus
+          value: $(tasks.run-tier0-tests.status)
         - name: clusterId
           value: $(tasks.provision-cluster.results.clusterId)
+        - name: snapshotName
+          value: $(tasks.extract-fbc-image.results.applicationName)
+        - name: operatorNVR
+          value: $(tasks.extract-operator-nvr.results.operatorNVR)
         - name: pipelineRunName
           value: $(context.pipelineRun.name)
         - name: triggeredBy
@@ -294,6 +301,6 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: main
+            value: tier0-matrix-execution
           - name: pathInRepo
             value: tasks/multicloud/slack-notification-tier0.yaml

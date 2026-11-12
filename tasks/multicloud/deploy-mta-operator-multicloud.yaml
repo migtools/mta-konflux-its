@@ -214,6 +214,8 @@ spec:
           imageDigestMirrors:
           - mirrors: [registry.stage.redhat.io/mta/mta-analyzer-addon-rhel9]
             source: registry.redhat.io/mta/mta-analyzer-addon-rhel9
+          - mirrors: [registry.stage.redhat.io/mta/mta-discovery-addon-rhel9]
+            source: registry.redhat.io/mta/mta-discovery-addon-rhel9
           - mirrors: [registry.stage.redhat.io/mta/mta-cli-rhel9]
             source: registry.redhat.io/mta/mta-cli-rhel9
           - mirrors: [registry.stage.redhat.io/mta/mta-hub-rhel9]
@@ -224,6 +226,22 @@ spec:
             source: registry.redhat.io/mta/mta-rhel9-operator
           - mirrors: [registry.stage.redhat.io/mta/mta-ui-rhel9]
             source: registry.redhat.io/mta/mta-ui-rhel9
+          - mirrors: [registry.stage.redhat.io/mta/mta-java-external-provider-rhel9]
+            source: registry.redhat.io/mta/mta-java-external-provider-rhel9
+          - mirrors: [registry.stage.redhat.io/mta/mta-dotnet-external-provider-rhel9]
+            source: registry.redhat.io/mta/mta-dotnet-external-provider-rhel9
+          - mirrors: [registry.stage.redhat.io/mta/mta-generic-external-provider-rhel9]
+            source: registry.redhat.io/mta/mta-generic-external-provider-rhel9
+          - mirrors: [registry.stage.redhat.io/mta/mta-nodejs-external-provider-rhel9]
+            source: registry.redhat.io/mta/mta-nodejs-external-provider-rhel9
+          - mirrors: [registry.stage.redhat.io/mta/mta-csharp-external-provider-rhel9]
+            source: registry.redhat.io/mta/mta-csharp-external-provider-rhel9
+          - mirrors: [registry.stage.redhat.io/mta/mta-go-external-provider-rhel9]
+            source: registry.redhat.io/mta/mta-go-external-provider-rhel9
+          - mirrors: [registry.stage.redhat.io/mta/mta-python-external-provider-rhel9]
+            source: registry.redhat.io/mta/mta-python-external-provider-rhel9
+          - mirrors: [registry.stage.redhat.io/mta/mta-language-discovery-rhel9]
+            source: registry.redhat.io/mta/mta-language-discovery-rhel9
           - mirrors: [registry.stage.redhat.io/rhel8/postgresql-12]
             source: registry.redhat.io/rhel8/postgresql-12
         EOF
@@ -311,12 +329,23 @@ spec:
               interval: 10m
         EOF
 
+        echo "Waiting for CatalogSource to become READY..."
         for i in {1..60}; do
           STATE=$(oc get catalogsource mta-konflux-catalog -n openshift-marketplace -o jsonpath='{.status.connectionState.lastObservedState}' 2>/dev/null || echo "")
+          echo "[$i/60] CatalogSource state: $STATE"
           [ "$STATE" = "READY" ] && break
-          [ $i -eq 60 ] && exit 1
+          if [ $i -eq 60 ]; then
+            echo "❌ CatalogSource failed to become READY after 5 minutes"
+            echo "Checking CatalogSource status:"
+            oc get catalogsource mta-konflux-catalog -n openshift-marketplace -o yaml
+            echo "Checking catalog pod:"
+            oc get pods -n openshift-marketplace -l olm.catalogSource=mta-konflux-catalog
+            oc logs -n openshift-marketplace -l olm.catalogSource=mta-konflux-catalog --tail=50 || true
+            exit 1
+          fi
           sleep 5
         done
+        echo "✅ CatalogSource is READY"
 
         cat <<EOF | oc apply -f -
         apiVersion: operators.coreos.com/v1
@@ -352,7 +381,18 @@ spec:
           sleep 5
         done
 
-        [ -z "$CSV" ] || [ "$PHASE" != "Succeeded" ] && exit 1
+        if [ -z "$CSV" ] || [ "$PHASE" != "Succeeded" ]; then
+          echo "❌ Operator installation failed or timed out"
+          echo "Subscription status:"
+          oc get subscription mta-operator -n "$NAMESPACE" -o yaml || true
+          if [ -n "$CSV" ]; then
+            echo "CSV status:"
+            oc get csv "$CSV" -n "$NAMESPACE" -o yaml || true
+          fi
+          echo "InstallPlan status:"
+          oc get installplan -n "$NAMESPACE" || true
+          exit 1
+        fi
 
         oc wait --for=condition=available --timeout=300s deployment/mta-operator -n "$NAMESPACE"
 

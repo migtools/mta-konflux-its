@@ -279,6 +279,8 @@ spec:
           operator: in
           values: ["Succeeded", "Failed", "None"]
       params:
+        - name: clusterType
+          value: $(params.clusterType)
         - name: clusterTypeLabel
           value: $(tasks.map-cluster-config.results.clusterTypeLabel)
         - name: testStatus

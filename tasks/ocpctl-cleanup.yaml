@@ -38,7 +38,7 @@ spec:
 
   steps:
     - name: delete-cluster
-      image: registry.access.redhat.com/ubi9/ubi@sha256:e79f79172a6779775e1733cb4f49cd5ef03a0703c68ec46c717f93b9ac4a5e71
+      image: registry.access.redhat.com/ubi9/ubi@sha256:1e9f0ed9fceafb40878bc1705ff124aa150e3fed873f18c42cdc2dded319e0a8
       env:
         - name: OCPCTL_API_KEY
           valueFrom:

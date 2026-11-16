@@ -248,12 +248,12 @@ spec:
             value: tasks/run-ui-e2e-tests.yaml
 
   finally:
-    # Destroy cluster after tests complete
+    # Destroy cluster after tests complete (runs regardless of pipeline success/failure)
     - name: destroy-cluster
       when:
         - input: "$(tasks.provision-cluster.status)"
           operator: in
-          values: ["Succeeded"]
+          values: ["Succeeded", "Failed"]
         - input: "$(params.existingClusterId)"
           operator: in
           values: [""]

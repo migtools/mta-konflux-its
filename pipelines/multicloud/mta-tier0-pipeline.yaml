@@ -25,6 +25,10 @@ spec:
       description: Use existing cluster instead of provisioning (for debugging) - leave empty to provision new cluster
       type: string
       default: ""
+    - name: allowedDays
+      description: Days of week to run tests (comma-separated, e.g., "Monday,Wednesday,Friday" or "all" to run every day)
+      type: string
+      default: "Monday"
 
   results:
     - name: OPERATOR_NVR
@@ -41,8 +45,61 @@ spec:
       value: $(tasks.run-tier0-tests.results.testStatus)
 
   tasks:
+    # Check if today is an allowed day for testing
+    - name: check-day-of-week
+      params:
+        - name: allowedDays
+          value: $(params.allowedDays)
+      taskSpec:
+        params:
+          - name: allowedDays
+            type: string
+        results:
+          - name: shouldRun
+            description: "true if tests should run today, false to skip"
+        steps:
+          - name: check
+            image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+            script: |
+              #!/bin/bash
+              set -euo pipefail
+
+              ALLOWED_DAYS='$(params.allowedDays)'
+              CURRENT_DAY=$(date +%A)
+
+              echo "============================================"
+              echo "Day-of-Week Filter"
+              echo "============================================"
+              echo "Current day: $CURRENT_DAY"
+              echo "Allowed days: $ALLOWED_DAYS"
+              echo ""
+
+              # If "all", always run
+              if [ "$ALLOWED_DAYS" = "all" ]; then
+                echo "✅ RUNNING TESTS (allowed every day)"
+                echo -n "true" > $(results.shouldRun.path)
+                exit 0
+              fi
+
+              # Check if current day is in allowed list
+              if echo ",$ALLOWED_DAYS," | grep -qi ",$CURRENT_DAY,"; then
+                echo "✅ RUNNING TESTS ($CURRENT_DAY is in allowed list)"
+                echo -n "true" > $(results.shouldRun.path)
+              else
+                echo "⏭️  SKIPPING TESTS ($CURRENT_DAY is not in allowed list)"
+                echo "   Tests only run on: $ALLOWED_DAYS"
+                echo "============================================"
+                echo -n "false" > $(results.shouldRun.path)
+              fi
+
     # Extract FBC image from snapshot (doesn't require component label)
     - name: extract-fbc-image
+      runAfter:
+        - check-day-of-week
+      when:
+        - input: "$(tasks.check-day-of-week.results.shouldRun)"
+          operator: in
+          values: ["true"]
       params:
         - name: snapshotJson
           value: $(params.SNAPSHOT)

@@ -329,12 +329,12 @@ spec:
           - name: pathInRepo
             value: tasks/ocpctl-cleanup.yaml
 
-    # Send Slack notification
+    # Send Slack notification (only if tests actually ran)
     - name: send-slack-notification
       when:
         - input: "$(tasks.run-tier0-tests.status)"
           operator: in
-          values: ["Succeeded", "Failed", "None"]
+          values: ["Succeeded", "Failed"]
       params:
         - name: clusterType
           value: $(params.clusterType)

@@ -118,9 +118,9 @@ spec:
       runAfter:
         - extract-fbc-image
       when:
-        - input: "$(tasks.extract-fbc-image.status)"
+        - input: "$(tasks.check-day-of-week.results.shouldRun)"
           operator: in
-          values: ["Succeeded"]
+          values: ["true"]
       params:
         - name: pipelineRunName
           value: $(context.pipelineRun.name)
@@ -141,9 +141,9 @@ spec:
       runAfter:
         - filter-ocp-version
       when:
-        - input: "$(tasks.filter-ocp-version.status)"
+        - input: "$(tasks.check-day-of-week.results.shouldRun)"
           operator: in
-          values: ["Succeeded"]
+          values: ["true"]
       params:
         - name: snapshotJson
           value: $(params.SNAPSHOT)
@@ -164,9 +164,9 @@ spec:
       runAfter:
         - extract-fbc-image
       when:
-        - input: "$(tasks.filter-ocp-version.status)"
+        - input: "$(tasks.check-day-of-week.results.shouldRun)"
           operator: in
-          values: ["Succeeded"]
+          values: ["true"]
       params:
         - name: snapshotJson
           value: $(params.SNAPSHOT)
@@ -228,9 +228,9 @@ spec:
       runAfter:
         - filter-ocp-version
       when:
-        - input: "$(tasks.filter-ocp-version.status)"
+        - input: "$(tasks.check-day-of-week.results.shouldRun)"
           operator: in
-          values: ["Succeeded"]
+          values: ["true"]
       params:
         - name: clusterType
           value: $(params.clusterType)
@@ -250,9 +250,9 @@ spec:
         - extract-operator-nvr
         - map-cluster-config
       when:
-        - input: "$(tasks.filter-ocp-version.status)"
+        - input: "$(tasks.check-day-of-week.results.shouldRun)"
           operator: in
-          values: ["Succeeded"]
+          values: ["true"]
       params:
         - name: clusterName
           value: $(context.pipelineRun.name)
@@ -310,9 +310,9 @@ spec:
       runAfter:
         - deploy-operator
       when:
-        - input: "$(tasks.filter-ocp-version.status)"
+        - input: "$(tasks.check-day-of-week.results.shouldRun)"
           operator: in
-          values: ["Succeeded"]
+          values: ["true"]
       params:
         - name: uiRoute
           value: $(tasks.deploy-operator.results.uiRoute)

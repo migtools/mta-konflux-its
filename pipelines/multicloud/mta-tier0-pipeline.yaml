@@ -117,6 +117,10 @@ spec:
     - name: filter-ocp-version
       runAfter:
         - extract-fbc-image
+      when:
+        - input: "$(tasks.extract-fbc-image.status)"
+          operator: in
+          values: ["Succeeded"]
       params:
         - name: pipelineRunName
           value: $(context.pipelineRun.name)
@@ -136,6 +140,10 @@ spec:
     - name: extract-operator-nvr
       runAfter:
         - filter-ocp-version
+      when:
+        - input: "$(tasks.filter-ocp-version.status)"
+          operator: in
+          values: ["Succeeded"]
       params:
         - name: snapshotJson
           value: $(params.SNAPSHOT)
@@ -155,6 +163,10 @@ spec:
     - name: map-test-branch
       runAfter:
         - extract-fbc-image
+      when:
+        - input: "$(tasks.filter-ocp-version.status)"
+          operator: in
+          values: ["Succeeded"]
       params:
         - name: snapshotJson
           value: $(params.SNAPSHOT)
@@ -213,6 +225,12 @@ spec:
 
     # Map cluster configuration (profile, region, timeout)
     - name: map-cluster-config
+      runAfter:
+        - filter-ocp-version
+      when:
+        - input: "$(tasks.filter-ocp-version.status)"
+          operator: in
+          values: ["Succeeded"]
       params:
         - name: clusterType
           value: $(params.clusterType)
@@ -231,6 +249,10 @@ spec:
       runAfter:
         - extract-operator-nvr
         - map-cluster-config
+      when:
+        - input: "$(tasks.filter-ocp-version.status)"
+          operator: in
+          values: ["Succeeded"]
       params:
         - name: clusterName
           value: $(context.pipelineRun.name)
@@ -287,6 +309,10 @@ spec:
     - name: run-tier0-tests
       runAfter:
         - deploy-operator
+      when:
+        - input: "$(tasks.filter-ocp-version.status)"
+          operator: in
+          values: ["Succeeded"]
       params:
         - name: uiRoute
           value: $(tasks.deploy-operator.results.uiRoute)

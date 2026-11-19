@@ -1,13 +1,13 @@
 apiVersion: tekton.dev/v1
 kind: Pipeline
 metadata:
-  name: mta-multicloud-tier0-pipeline
+  name: mta-tier0-rosa-pipeline
 spec:
   description: |
-    MTA Tier-0 UI Tests on Multicloud Platforms
+    MTA Tier-0 UI Tests on ROSA
 
-    Provisions fresh cluster (ARO/ROSA/ROSA-STS/OCP-AWS), deploys MTA operator
-    from Konflux snapshot, runs tier-0 UI tests, and destroys the cluster.
+    Provisions fresh ROSA cluster, deploys MTA operator from Konflux snapshot,
+    runs tier-0 UI tests, and destroys the cluster.
 
   params:
     - name: SNAPSHOT
@@ -24,7 +24,7 @@ spec:
     - name: existingClusterId
       description: Use existing cluster instead of provisioning (for debugging) - leave empty to provision new cluster
       type: string
-      default: "1eb1eef4-cfe1-4e6a-867a-683cfa13c06f"
+      default: ""
     - name: allowedDays
       description: Days of week to run tests (comma-separated, e.g., "Monday,Wednesday,Friday" or "all" to run every day)
       type: string
@@ -110,7 +110,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: tier0-matrix-execution
+            value: main
           - name: pathInRepo
             value: tasks/extract-fbc-image.yaml
 
@@ -134,7 +134,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: tier0-matrix-execution
+            value: main
           - name: pathInRepo
             value: tasks/filter-ocp-version.yaml
 
@@ -157,7 +157,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: tier0-matrix-execution
+            value: main
           - name: pathInRepo
             value: tasks/extract-operator-nvr.yaml
 
@@ -242,7 +242,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: tier0-matrix-execution
+            value: main
           - name: pathInRepo
             value: tasks/multicloud/map-cluster-profile.yaml
 
@@ -280,7 +280,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: tier0-matrix-execution
+            value: main
           - name: pathInRepo
             value: tasks/multicloud/ocpctl-provision.yaml
 
@@ -308,7 +308,7 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: tier0-matrix-execution
+            value: main
           - name: pathInRepo
             value: tasks/multicloud/deploy-mta-operator-multicloud.yaml
 
@@ -334,27 +334,26 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: tier0-matrix-execution
+            value: main
           - name: pathInRepo
             value: tasks/run-ui-e2e-tests.yaml
 
   finally:
     # Destroy cluster after tests complete (runs regardless of pipeline success/failure)
-    # TEMPORARY: Testing cleanup on specific cluster
     - name: destroy-cluster
       timeout: 30m
       params:
         - name: clusterId
-          value: "1eb1eef4-cfe1-4e6a-867a-683cfa13c06f"
+          value: $(tasks.provision-cluster.results.clusterId)
         - name: clusterName
-          value: ""
+          value: $(context.pipelineRun.uid)
       taskRef:
         resolver: git
         params:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: tier0-matrix-execution
+            value: main
           - name: pathInRepo
             value: tasks/ocpctl-cleanup.yaml
 
@@ -387,6 +386,6 @@ spec:
           - name: url
             value: https://github.com/migtools/mta-konflux-its
           - name: revision
-            value: tier0-matrix-execution
+            value: main
           - name: pathInRepo
             value: tasks/multicloud/slack-notification-tier0.yaml

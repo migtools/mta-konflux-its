@@ -100,6 +100,7 @@ spec:
         - input: "$(tasks.check-day-of-week.results.shouldRun)"
           operator: in
           values: ["true"]
+      timeout: 10m
       params:
         - name: snapshotJson
           value: $(params.SNAPSHOT)
@@ -121,6 +122,7 @@ spec:
         - input: "$(tasks.check-day-of-week.results.shouldRun)"
           operator: in
           values: ["true"]
+      timeout: 10m
       params:
         - name: pipelineRunName
           value: $(context.pipelineRun.name)
@@ -256,6 +258,7 @@ spec:
         - input: "$(params.existingClusterId)"
           operator: in
           values: [""]
+      timeout: 1h30m
       params:
         - name: clusterName
           value: $(context.pipelineRun.name)
@@ -289,6 +292,7 @@ spec:
         - input: "$(tasks.provision-cluster.results.provisionStatus)"
           operator: in
           values: ["READY"]
+      timeout: 30m
       params:
         - name: clusterId
           value: $(tasks.provision-cluster.results.clusterId)
@@ -316,6 +320,7 @@ spec:
         - input: "$(tasks.check-day-of-week.results.shouldRun)"
           operator: in
           values: ["true"]
+      timeout: 20m
       params:
         - name: uiRoute
           value: $(tasks.deploy-operator.results.uiRoute)
@@ -337,6 +342,7 @@ spec:
     # Destroy cluster after tests complete (runs regardless of pipeline success/failure)
     # TEMPORARY: Testing cleanup on specific cluster
     - name: destroy-cluster
+      timeout: 30m
       params:
         - name: clusterId
           value: "1eb1eef4-cfe1-4e6a-867a-683cfa13c06f"

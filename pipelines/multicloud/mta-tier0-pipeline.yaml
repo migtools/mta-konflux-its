@@ -59,7 +59,7 @@ spec:
             description: "true if tests should run today, false to skip"
         steps:
           - name: check
-            image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+            image: registry.access.redhat.com/ubi9/ubi:9.5
             script: |
               #!/bin/bash
               set -euo pipefail
@@ -100,7 +100,7 @@ spec:
         - input: "$(tasks.check-day-of-week.results.shouldRun)"
           operator: in
           values: ["true"]
-      timeout: 10m
+      timeout: 3m
       params:
         - name: snapshotJson
           value: $(params.SNAPSHOT)
@@ -184,7 +184,7 @@ spec:
           - name: testBranch
         steps:
           - name: extract-and-map
-            image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+            image: registry.access.redhat.com/ubi9/ubi:9.5
             script: |
               #!/bin/bash
               set -euo pipefail

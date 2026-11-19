@@ -23,11 +23,11 @@ README.md
 
 **Execution model**: Tasks run sequentially. If any task fails, subsequent tasks are **skipped** (not failed). Slack notification always sends with status of all tasks.
 
-**mta-tier0-multicloud-pipeline** - Multicloud tier-0 testing on ROSA/ARO:
+**mta-tier0-rosa-pipeline** - Tier-0 testing on ROSA clusters:
 
 1. **Day Filter** - Checks if tests should run today (default: Monday only)
 2. **OCP Version Filter** - Only runs on OCP 4.22 snapshots
-3. **Provision** - Fresh ROSA/ARO cluster via OCPCTL (20-minute timeout)
+3. **Provision** - Fresh ROSA cluster via OCPCTL (1 hour timeout)
 4. **Deploy** - MTA operator with IDMS for stage registry mirrors
 5. **UI Tests** - Tier-0 Cypress tests
 6. **Finally** - Cluster cleanup + Slack notification (always runs)
@@ -91,9 +91,9 @@ spec:
         value: pipelines/mta-fbc-ui-koncur-e2e-pipeline.yaml
 ```
 
-## Manually Triggering Multicloud Pipeline (ROSA/ARO)
+## Manually Triggering ROSA Pipeline
 
-The multicloud pipeline (`mta-tier0-multicloud-pipeline`) runs only on specific days to conserve cluster resources. By default, it runs only on **Mondays**.
+The ROSA pipeline (`mta-tier0-rosa-pipeline`) runs only on specific days to conserve cluster resources. By default, it runs only on **Mondays**.
 
 ### To manually trigger on any day:
 
@@ -133,28 +133,12 @@ The multicloud pipeline (`mta-tier0-multicloud-pipeline`) runs only on specific 
    ]'
    ```
 
-### To test different cluster types:
-
-Change the `clusterType` parameter (index 0 in params array):
-
-```bash
-# Test on ROSA
-oc patch integrationtestscenario mta-ui-tests-on-multicloud -n art-mta-tenant --type=json -p='[
-  {"op": "replace", "path": "/spec/params/0/value", "value": "rosa"}
-]'
-
-# Test on ARO (currently broken - OCPCTL issue)
-oc patch integrationtestscenario mta-ui-tests-on-multicloud -n art-mta-tenant --type=json -p='[
-  {"op": "replace", "path": "/spec/params/0/value", "value": "aro"}
-]'
-```
-
 ### Current ITS Parameters:
 
 ```yaml
 params:
   - name: clusterType
-    value: "rosa"           # Cluster type: rosa, aro, rosa-sts, ocp-aws
+    value: "rosa"           # Cluster type: rosa
   - name: allowedDays
     value: "Monday"         # Days to run: "Monday", "all", "Monday,Friday", etc.
 ```

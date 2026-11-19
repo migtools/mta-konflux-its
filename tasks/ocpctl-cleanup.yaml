@@ -100,35 +100,73 @@ spec:
           exit 0
         fi
 
-        echo "Deleting OCPCTL cluster $CLUSTER_ID..."
+        echo "======================================"
+        echo "Deleting OCPCTL cluster"
+        echo "======================================"
+        echo "Cluster ID: $CLUSTER_ID"
+        echo "URL: $OCPCTL_URL/clusters/$CLUSTER_ID"
+        echo "======================================"
 
-        HTTP_CODE=$(curl -s --max-time 30 --retry 3 --retry-delay 5 \
+        # Capture both HTTP code and curl errors
+        set +e  # Don't exit on curl failure
+        CURL_OUTPUT=$(curl -v --max-time 30 --retry 3 --retry-delay 5 \
           -o /tmp/delete-response.json -w "%{http_code}" \
           -X DELETE "$OCPCTL_URL/clusters/$CLUSTER_ID" \
-          -H "Authorization: Bearer $OCPCTL_API_KEY" || echo "000")
+          -H "Authorization: Bearer $OCPCTL_API_KEY" 2>&1)
+        CURL_EXIT=$?
+        set -e
+
+        # Extract HTTP code (last line of output)
+        HTTP_CODE=$(echo "$CURL_OUTPUT" | tail -1)
+
+        if [ $CURL_EXIT -ne 0 ]; then
+          echo "❌ curl command failed with exit code: $CURL_EXIT"
+          echo ""
+          echo "curl error output:"
+          echo "$CURL_OUTPUT"
+          echo ""
+          echo "Cleanup aborted - manual deletion may be needed"
+          exit 0
+        fi
 
         if [[ "$HTTP_CODE" != "200" && "$HTTP_CODE" != "202" && "$HTTP_CODE" != "204" ]]; then
           echo "⚠️  Delete request returned HTTP $HTTP_CODE"
+          echo ""
+          echo "Response body:"
           cat /tmp/delete-response.json 2>/dev/null || echo "(no response body)"
+          echo ""
           echo "Cleanup will not wait for DESTROYED status"
           exit 0
         fi
 
-        echo "Delete request accepted. Waiting for DESTROYED status..."
+        echo "✅ Delete request accepted (HTTP $HTTP_CODE)"
+        echo ""
+        echo "Waiting for DESTROYED status..."
+        echo "======================================"
 
         TIMEOUT=$(params.waitTimeout)
         INTERVAL=30
         ELAPSED=0
 
         while true; do
-          HTTP_CODE=$(curl -s --max-time 30 --retry 3 --retry-delay 5 \
+          set +e
+          CURL_OUTPUT=$(curl -s --max-time 30 --retry 3 --retry-delay 5 \
             -o /tmp/status-response.json -w "%{http_code}" \
             -H "Authorization: Bearer $OCPCTL_API_KEY" \
-            "$OCPCTL_URL/clusters/$CLUSTER_ID" || echo "000")
+            "$OCPCTL_URL/clusters/$CLUSTER_ID" 2>&1)
+          CURL_EXIT=$?
+          set -e
+
+          HTTP_CODE=$(echo "$CURL_OUTPUT" | tail -1)
+
+          if [ $CURL_EXIT -ne 0 ]; then
+            echo "⚠️  Status check failed (curl exit $CURL_EXIT) at ${ELAPSED}s"
+            echo "   Will retry in ${INTERVAL}s..."
+          fi
 
           # 404 means cluster is already gone - treat as success
           if [ "$HTTP_CODE" = "404" ]; then
-            echo "✅ Cluster no longer exists (404) - already destroyed"
+            echo "✅ Cluster no longer exists (HTTP 404) - destroyed successfully"
             exit 0
           fi
 
@@ -142,7 +180,7 @@ spec:
             print('UNKNOWN')
         " 2>/dev/null || echo "UNKNOWN")
 
-          echo "Status: $STATUS ($ELAPSED/${TIMEOUT}s, HTTP $HTTP_CODE)"
+          echo "[$ELAPSED/${TIMEOUT}s] Status: $STATUS (HTTP $HTTP_CODE)"
 
           if [ "$STATUS" = "DESTROYED" ]; then
             echo "✅ Cluster destroyed"

@@ -24,7 +24,7 @@ spec:
     - name: existingClusterId
       description: Use existing cluster instead of provisioning (for debugging) - leave empty to provision new cluster
       type: string
-      default: ""
+      default: "1eb1eef4-cfe1-4e6a-867a-683cfa13c06f"
     - name: allowedDays
       description: Days of week to run tests (comma-separated, e.g., "Monday,Wednesday,Friday" or "all" to run every day)
       type: string
@@ -253,6 +253,9 @@ spec:
         - input: "$(tasks.check-day-of-week.results.shouldRun)"
           operator: in
           values: ["true"]
+        - input: "$(params.existingClusterId)"
+          operator: in
+          values: [""]
       params:
         - name: clusterName
           value: $(context.pipelineRun.name)
@@ -332,19 +335,13 @@ spec:
 
   finally:
     # Destroy cluster after tests complete (runs regardless of pipeline success/failure)
+    # TEMPORARY: Testing cleanup on specific cluster
     - name: destroy-cluster
-      when:
-        - input: "$(tasks.provision-cluster.status)"
-          operator: in
-          values: ["Succeeded", "Failed"]
-        - input: "$(params.existingClusterId)"
-          operator: in
-          values: [""]
       params:
         - name: clusterId
-          value: $(tasks.provision-cluster.results.clusterId)
+          value: "1eb1eef4-cfe1-4e6a-867a-683cfa13c06f"
         - name: clusterName
-          value: $(tasks.provision-cluster.results.clusterName)
+          value: ""
       taskRef:
         resolver: git
         params:

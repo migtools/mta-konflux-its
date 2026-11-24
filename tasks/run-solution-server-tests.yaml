@@ -103,7 +103,7 @@ spec:
       # python:3.12 (not -slim): the slim image ships no curl, and the first
       # thing this task does is fetch the kubeconfig over HTTPS. The full
       # Debian image has curl, python 3.12, and enough shell for the rest.
-      image: python:3.12
+      image: python:3.15
       volumeMounts:
         - name: credentials
           mountPath: /credentials
